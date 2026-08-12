@@ -110,11 +110,35 @@
         .move-entry { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--tg-theme-bg-color, #25252b); }
         .move-num { color: #444; min-width: 20px; }
         .move-text { color: var(--tg-theme-text-color, #eee); }
+        .scout-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(4px);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border-radius: 8px;
+            z-index: 10;
+            pointer-events: none; /* чтобы клики проходили через оверлей? Но мы блокируем клики через JS */
+        }
+        .scout-overlay .scout-title {
+            font-size: 28px;
+            font-weight: 300;
+            letter-spacing: 4px;
+            color: var(--tg-theme-button-color, #8a2be2);
+            text-shadow: 0 0 20px rgba(138,43,226,0.5);
+        }
+        .scout-overlay .scout-timer-big {
+            font-size: 64px;
+            font-weight: 100;
+            color: #fff;
+            margin-top: 10px;
+            font-variant-numeric: tabular-nums;
+        }
         @media (max-width: 640px) {
             .side-panel { width: 100%; height: auto; max-height: 200px; }
             .rules-container { padding: 24px; }
             .board { width: 92vw; }
             .cell { font-size: 22px; }
+            .scout-overlay .scout-timer-big { font-size: 48px; }
         }
     </style>
 </head>
@@ -123,25 +147,27 @@
     <button class="tg-close-btn" id="tgCloseBtn" aria-label="Закрыть">✕</button>
 </div>
 <script>
-    let tg = null;
-    try {
-        tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.setHeaderColor('secondary_bg_color');
-        document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#121214');
-        document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color || '#eee');
-        document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color || '#2d2d35');
-        document.documentElement.style.setProperty('--tg-theme-link-color', tg.themeParams.link_color || '#6ab2f2');
-        document.documentElement.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color || '#8a2be2');
-        document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color || '#fff');
-        document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', tg.themeParams.secondary_bg_color || '#1a1a1e');
-    } catch(e) {}
-    document.getElementById('tgCloseBtn').addEventListener('click', function() {
-        if (tg && tg.close) tg.close();
-        else window.close();
-    });
-
     (function() {
+        // === Telegram WebApp integration ===
+        let tg = null;
+        try {
+            tg = window.Telegram.WebApp;
+            tg.expand();
+            tg.setHeaderColor('secondary_bg_color');
+            document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#121214');
+            document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color || '#eee');
+            document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color || '#2d2d35');
+            document.documentElement.style.setProperty('--tg-theme-link-color', tg.themeParams.link_color || '#6ab2f2');
+            document.documentElement.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color || '#8a2be2');
+            document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color || '#fff');
+            document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', tg.themeParams.secondary_bg_color || '#1a1a1e');
+        } catch(e) {}
+        document.getElementById('tgCloseBtn').addEventListener('click', function() {
+            if (tg && tg.close) tg.close();
+            else window.close();
+        });
+
+        // === Глобальные константы и состояние ===
         const SYM = { 'K':'♚','Q':'♛','R':'♜','B':'♝','N':'♞','P':'♟' };
         const PIECE_NAMES = { 'K':'Король','Q':'Ферзь','R':'Ладья','B':'Слон','N':'Конь','P':'Пешка' };
         const TOTAL_NEEDED = { 'K':1, 'Q':1, 'R':2, 'B':2, 'N':2 };
@@ -223,7 +249,8 @@
             initialRookCols: { white: [], black: [] },
             moveLog: [],
             elapsedSeconds: 0,
-            scoutTimer: 15
+            scoutTimer: 15,
+            scoutActive: false
         };
 
         let gameMode = 'multi';
@@ -234,9 +261,9 @@
         let isProcessingMove = false;
         const app = document.getElementById('app');
 
+        // === Вспомогательные функции ===
         function generateValidRandomSetup(isWhiteSide) {
-            let attempts = 0;
-            while (attempts < 5000) {
+            for (let attempts = 0; attempts < 5000; attempts++) {
                 const arr = [...BASE_PIECES];
                 for (let i = arr.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
@@ -244,7 +271,6 @@
                 }
                 const res = validateArrayRules(arr, isWhiteSide);
                 if (res.valid) return arr;
-                attempts++;
             }
             return ['R','N','B','Q','K','B','N','R'];
         }
@@ -287,6 +313,7 @@
             return flags;
         }
 
+        // === Шахматный движок ===
         function buildBoard(wSetup, bSetup) {
             const board = Array(8).fill().map(() => Array(8).fill(null));
             for (let c = 0; c < 8; c++) {
@@ -336,71 +363,81 @@
             switch (type) {
                 case 'P': {
                     const dir = color === 'white' ? 1 : -1;
-                    const start = color === 'white' ? 1 : 6;
-                    if (!boardState[row + dir][col]) {
+                    const startRow = color === 'white' ? 1 : 6;
+                    // Обычный ход
+                    if (!boardState[row + dir]?.[col]) {
                         checkAndAdd(row + dir, col);
-                        if (row === start && !boardState[row + 2 * dir][col]) checkAndAdd(row + 2 * dir, col);
+                        if (row === startRow && !boardState[row + 2*dir]?.[col]) {
+                            checkAndAdd(row + 2*dir, col);
+                        }
                     }
-                    [-1, 1].forEach(dc => {
+                    // Взятие
+                    for (const dc of [-1, 1]) {
                         const nc = col + dc;
-                        if (nc >= 0 && nc <= 7 && boardState[row + dir][nc]?.color === enemy) {
+                        if (nc < 0 || nc > 7) continue;
+                        const target = boardState[row + dir]?.[nc];
+                        if (target && target.color === enemy) {
                             checkAndAdd(row + dir, nc, { isCapture: true });
                         }
-                    });
+                    }
                     break;
                 }
                 case 'N': {
-                    [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(([dr,dc]) => {
+                    const offsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+                    for (const [dr, dc] of offsets) {
                         const tgt = boardState[row+dr]?.[col+dc];
                         checkAndAdd(row+dr, col+dc, { isCapture: !!tgt });
-                    });
+                    }
                     break;
                 }
                 case 'B': {
-                    [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc]) => {
-                        for(let i=1; i<8; i++) {
+                    for (const [dr, dc] of [[1,1],[1,-1],[-1,1],[-1,-1]]) {
+                        for (let i=1; i<8; i++) {
                             const r2 = row + dr*i, c2 = col + dc*i;
                             if (!checkAndAdd(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
                         }
-                    });
+                    }
                     break;
                 }
                 case 'R': {
-                    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dr,dc]) => {
-                        for(let i=1; i<8; i++) {
+                    for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+                        for (let i=1; i<8; i++) {
                             const r2 = row + dr*i, c2 = col + dc*i;
                             if (!checkAndAdd(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
                         }
-                    });
+                    }
                     break;
                 }
                 case 'Q': {
-                    [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc]) => {
-                        for(let i=1; i<8; i++) {
+                    for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
+                        for (let i=1; i<8; i++) {
                             const r2 = row + dr*i, c2 = col + dc*i;
                             if (!checkAndAdd(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
                         }
-                    });
+                    }
                     break;
                 }
                 case 'K': {
-                    [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(([dr,dc]) => {
+                    for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
                         const tgt = boardState[row+dr]?.[col+dc];
                         checkAndAdd(row+dr, col+dc, { isCapture: !!tgt });
-                    });
+                    }
+                    // Рокировка (Chess960)
                     if (!state.kingMoved[color]) {
-                        const rRow = color === 'white' ? 0 : 7;
-                        const initialRooks = state.initialRookCols[color];
+                        const rowKing = color === 'white' ? 0 : 7;
+                        const rookCols = state.initialRookCols[color];
+                        // Длинная
                         if (!state.rooksMoved[color][0]) {
-                            const rookCol = initialRooks[0];
-                            if (isCastlingPathClear(boardState, rRow, col, rookCol, 2, 3)) {
-                                moves.push({ row: rRow, col: rookCol, castling: 'long', isCapture: false });
+                            const rCol = rookCols[0];
+                            if (isCastlingPathClear(boardState, rowKing, col, rCol, 2, 3)) {
+                                moves.push({ row: rowKing, col: rCol, castling: 'long', isCapture: false });
                             }
                         }
+                        // Короткая
                         if (!state.rooksMoved[color][1]) {
-                            const rookCol = initialRooks[1];
-                            if (isCastlingPathClear(boardState, rRow, col, rookCol, 6, 5)) {
-                                moves.push({ row: rRow, col: rookCol, castling: 'short', isCapture: false });
+                            const rCol = rookCols[1];
+                            if (isCastlingPathClear(boardState, rowKing, col, rCol, 6, 5)) {
+                                moves.push({ row: rowKing, col: rCol, castling: 'short', isCapture: false });
                             }
                         }
                     }
@@ -418,6 +455,7 @@
                     if (board[row][c] !== null) return false;
                 }
             }
+            // Дополнительно проверяем, что король не проходит под шах (будет проверено в getLegalMoves)
             return true;
         }
 
@@ -426,11 +464,14 @@
             if (!piece) return [];
             const pseudo = getPseudoLegalMoves(boardState, row, col);
             return pseudo.filter(m => {
+                // Выполняем ход виртуально
                 const savedDest = boardState[m.row][m.col];
                 boardState[m.row][m.col] = piece;
                 boardState[row][col] = null;
+                // Проверяем, не под шахом ли свой король
                 const king = findKingPosition(boardState, piece.color);
                 const isUnderCheck = king ? isSquareAttacked(boardState, king.row, king.col, piece.color === 'white' ? 'black' : 'white') : true;
+                // Откатываем
                 boardState[row][col] = piece;
                 boardState[m.row][m.col] = savedDest;
                 return !isUnderCheck;
@@ -472,6 +513,7 @@
             return false;
         }
 
+        // === Оценка позиции ===
         function evaluatePosition(board) {
             let score = 0;
             for (let r = 0; r < 8; r++) {
@@ -492,76 +534,49 @@
             return score;
         }
 
-        function orderMoves(board, moves, isMaximizing) {
-            const scored = moves.map(m => {
-                let score = 0;
-                const target = board[m.toR][m.toC];
-                const piece = board[m.fromR][m.fromC];
-                if (target) {
-                    score = PIECE_VALUES[target.type] - PIECE_VALUES[piece.type];
-                }
-                if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) score += 50;
-                if (m.castling) score += 30;
-                return { move: m, score: score };
+        function orderMoves(board, moves) {
+            return moves.slice().sort((a, b) => {
+                const scoreA = getMoveScore(board, a);
+                const scoreB = getMoveScore(board, b);
+                return scoreB - scoreA;
             });
-            scored.sort((a, b) => b.score - a.score);
-            return scored.map(s => s.move);
         }
 
-        function alphaBetaSearch(board, depth, alpha, beta, isMaximizing) {
-            if (depth === 0) return evaluatePosition(board);
-            const turnColor = isMaximizing ? 'white' : 'black';
-            const moves = getAllLegalMoves(board, turnColor);
-            if (moves.length === 0) {
-                const king = findKingPosition(board, turnColor);
-                if (king && isSquareAttacked(board, king.row, king.col, isMaximizing ? 'black' : 'white')) {
-                    return isMaximizing ? -Infinity + (5 - depth) : Infinity - (5 - depth);
-                }
-                return 0;
+        function getMoveScore(board, m) {
+            let score = 0;
+            const target = board[m.toR][m.toC];
+            const piece = board[m.fromR][m.fromC];
+            if (target) {
+                score = PIECE_VALUES[target.type] - PIECE_VALUES[piece.type];
             }
-
-            const orderedMoves = orderMoves(board, moves, isMaximizing);
-
-            if (isMaximizing) {
-                let maxEval = -Infinity;
-                for (let m of orderedMoves) {
-                    const undo = makeVirtualMove(board, m);
-                    const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, false);
-                    undo();
-                    maxEval = Math.max(maxEval, evalVal);
-                    alpha = Math.max(alpha, evalVal);
-                    if (beta <= alpha) break;
-                }
-                return maxEval;
-            } else {
-                let minEval = Infinity;
-                for (let m of orderedMoves) {
-                    const undo = makeVirtualMove(board, m);
-                    const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, true);
-                    undo();
-                    minEval = Math.min(minEval, evalVal);
-                    beta = Math.min(beta, evalVal);
-                    if (beta <= alpha) break;
-                }
-                return minEval;
-            }
+            if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) score += 50;
+            if (m.castling) score += 30;
+            return score;
         }
 
+        // === ИИ (Alpha-Beta) с оптимизированным makeVirtualMove ===
         function makeVirtualMove(board, m) {
             const startPiece = board[m.fromR][m.fromC];
             const endPiece = board[m.toR][m.toC];
             if (m.castling) {
-                board[m.fromR][m.fromC] = null;
-                board[m.toR][m.toC] = null;
-                const tkc = m.castling === 'long' ? 2 : 6;
-                const trc = m.castling === 'long' ? 3 : 5;
-                board[m.fromR][tkc] = startPiece;
-                board[m.fromR][trc] = { type: 'R', color: startPiece.color };
+                // Сохраняем позиции для отката
+                const row = m.fromR;
+                const oldKCol = m.fromC;
+                const oldRCol = m.toC;
+                const targetKCol = m.castling === 'long' ? 2 : 6;
+                const targetRCol = m.castling === 'long' ? 3 : 5;
+                // Очищаем исходные клетки
+                board[row][oldKCol] = null;
+                board[row][oldRCol] = null;
+                // Перемещаем короля и ладью
+                board[row][targetKCol] = startPiece;
+                board[row][targetRCol] = { type: 'R', color: startPiece.color };
                 return () => {
-                    board[m.fromR][tkc] = null;
-                    board[m.fromR][trc] = null;
-                    board[m.fromR][m.fromC] = startPiece;
-                    board[m.toR][m.toC] = endPiece;
+                    // Откат
+                    board[row][targetKCol] = null;
+                    board[row][targetRCol] = null;
+                    board[row][oldKCol] = startPiece;
+                    board[row][oldRCol] = endPiece;
                 };
             } else {
                 board[m.toR][m.toC] = startPiece;
@@ -576,7 +591,44 @@
             }
         }
 
-        // ========== ИСПРАВЛЕННАЯ executeAIMoveCalculation ==========
+        function alphaBetaSearch(board, depth, alpha, beta, isMaximizing) {
+            if (depth === 0) return evaluatePosition(board);
+            const turnColor = isMaximizing ? 'white' : 'black';
+            const moves = getAllLegalMoves(board, turnColor);
+            if (moves.length === 0) {
+                const king = findKingPosition(board, turnColor);
+                if (king && isSquareAttacked(board, king.row, king.col, isMaximizing ? 'black' : 'white')) {
+                    return isMaximizing ? -Infinity + (5 - depth) : Infinity - (5 - depth);
+                }
+                return 0;
+            }
+
+            const ordered = orderMoves(board, moves);
+            if (isMaximizing) {
+                let maxEval = -Infinity;
+                for (let m of ordered) {
+                    const undo = makeVirtualMove(board, m);
+                    const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, false);
+                    undo();
+                    maxEval = Math.max(maxEval, evalVal);
+                    alpha = Math.max(alpha, evalVal);
+                    if (beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (let m of ordered) {
+                    const undo = makeVirtualMove(board, m);
+                    const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, true);
+                    undo();
+                    minEval = Math.min(minEval, evalVal);
+                    beta = Math.min(beta, evalVal);
+                    if (beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+
         function executeAIMoveCalculation() {
             const aiColor = playerColor === 'white' ? 'black' : 'white';
             const moves = getAllLegalMoves(state.board, aiColor);
@@ -586,7 +638,7 @@
                 return moves[Math.floor(Math.random() * moves.length)];
             }
 
-            let bestMove = moves[0]; // ← главное исправление
+            let bestMove = moves[0];
             let bestScore = aiColor === 'white' ? -Infinity : Infinity;
             const depth = difficulty === 'grandmaster' ? 3 : 2;
 
@@ -605,6 +657,7 @@
             return bestMove;
         }
 
+        // === Исполнение хода (с правильной рокировкой) ===
         function commitMove(fromR, fromC, toR, toC, castling) {
             if (isProcessingMove) return;
             isProcessingMove = true;
@@ -615,27 +668,32 @@
             let notation = '';
 
             if (castling) {
+                // === Chess960 Рокировка ===
                 const row = fromR;
-                const targetKCol = castling === 'long' ? 2 : 6;
-                const targetRCol = castling === 'long' ? 3 : 5;
-
-                state.board[row][fromC] = null;
-                state.board[row][toC] = null;
-
-                const minC = Math.min(fromC, toC, targetKCol, targetRCol);
-                const maxC = Math.max(fromC, toC, targetKCol, targetRCol);
-                for (let c = minC; c <= maxC; c++) {
-                    if (c !== targetKCol && c !== targetRCol) {
-                        state.board[row][c] = null;
-                    }
+                let targetKCol, targetRCol;
+                if (castling === 'long') {
+                    targetKCol = 2;
+                    targetRCol = 3;
+                } else { // short
+                    targetKCol = 6;
+                    targetRCol = 5;
                 }
-
+                // Очищаем все клетки на горизонтали от начала до конца
+                const oldKCol = fromC;
+                const oldRCol = toC;
+                // Находим минимальный и максимальный столбец среди всех задействованных
+                const minC = Math.min(oldKCol, oldRCol, targetKCol, targetRCol);
+                const maxC = Math.max(oldKCol, oldRCol, targetKCol, targetRCol);
+                for (let c = minC; c <= maxC; c++) {
+                    state.board[row][c] = null;
+                }
+                // Ставим короля и ладью
                 state.board[row][targetKCol] = p;
                 state.board[row][targetRCol] = { type: 'R', color: p.color };
-
                 notation = castling === 'long' ? '0-0-0' : '0-0';
                 state.kingMoved[p.color] = true;
             } else {
+                // Обычный ход
                 state.board[toR][toC] = p;
                 state.board[fromR][fromC] = null;
                 if (p.type === 'K') state.kingMoved[p.color] = true;
@@ -661,9 +719,11 @@
             state.selected = null;
             state.possibleMoves = [];
 
+            // Переключение хода
             const nextColor = p.color === 'white' ? 'black' : 'white';
             state.turn = nextColor;
 
+            // Проверка мата/пата
             const oppKing = findKingPosition(state.board, nextColor);
             if (oppKing) {
                 const inCheck = isSquareAttacked(state.board, oppKing.row, oppKing.col, p.color);
@@ -736,8 +796,22 @@
             return whiteKing && blackKing;
         }
 
-        // ========== ОТРИСОВКА ЭКРАНОВ (полный код) ==========
+        // === Управление BackButton ===
+        function showBackButton(show) {
+            if (tg) {
+                if (show) {
+                    tg.BackButton.show();
+                    tg.BackButton.onClick(resetEntireSystem);
+                } else {
+                    tg.BackButton.hide();
+                    tg.BackButton.offClick(resetEntireSystem);
+                }
+            }
+        }
+
+        // === Рендеринг экранов ===
         function renderRulesScreen() {
+            showBackButton(false);
             app.innerHTML = `
                 <div class="title">♔ Victory Chess</div>
                 <div class="subtitle">Шахматы с нестандартной расстановкой</div>
@@ -761,6 +835,7 @@
         }
 
         function renderMainMenu() {
+            showBackButton(false);
             app.innerHTML = `
                 <div class="title">♔ Victory Chess</div>
                 <div class="subtitle">Выберите режим игры</div>
@@ -774,6 +849,7 @@
         }
 
         function renderOptionsScreen() {
+            showBackButton(true);
             app.innerHTML = `
                 <div class="title">♔ Victory Chess</div>
                 <div class="subtitle">Параметры матча против ИИ</div>
@@ -800,6 +876,7 @@
         }
 
         function renderSetupScreen(side) {
+            showBackButton(true);
             const isWhite = (side === 'white');
             const setup = isWhite ? state.whiteSetup : state.blackSetup;
             const validInfo = validateArrayRules(setup, isWhite);
@@ -890,56 +967,30 @@
         function launchScoutPhase() {
             state.phase = 'scout';
             state.scoutTimer = 15;
+            state.scoutActive = true;
             initBoard();
-            renderScoutScreen();
+            // Вместо отдельных мини-досок – сразу показываем игровой экран с оверлеем
+            renderPlayScreen();
+            startScoutTimer();
+        }
+
+        function startScoutTimer() {
             if (scoutInterval) clearInterval(scoutInterval);
             scoutInterval = setInterval(() => {
                 state.scoutTimer--;
                 if (state.scoutTimer <= 0) {
                     clearInterval(scoutInterval);
+                    state.scoutActive = false;
                     state.phase = 'play';
+                    // Перерисовываем доску без оверлея
                     renderPlayScreen();
                     startGlobalMatchTimer();
                 } else {
-                    const clock = document.getElementById('s-clock');
-                    if (clock) clock.innerText = state.scoutTimer + 'с';
+                    // Обновляем таймер в оверлее
+                    const timerEl = document.getElementById('scoutTimerDisplay');
+                    if (timerEl) timerEl.innerText = state.scoutTimer + 's';
                 }
             }, 1000);
-        }
-
-        function renderScoutScreen() {
-            app.innerHTML = `
-                <div class="title">🔍 Фаза разведки</div>
-                <div class="scout-timer" id="s-clock">15с</div>
-                <div style="color:#666; font-size:13px; text-align:center; margin-bottom:12px;">Изучите вражеское расположение досок! Настоящий "слепой старт"</div>
-                <div class="scout-container" id="scout-grids"></div>
-            `;
-            const grids = document.getElementById('scout-grids');
-            grids.innerHTML = '';
-
-            const boardWhite = buildBoard(state.whiteSetup, state.blackSetup);
-            const boardBlack = flipBoard(boardWhite);
-
-            const createMiniHtml = (board, label) => {
-                let div = document.createElement('div');
-                div.className = 'scout-board-wrapper';
-                div.innerHTML = `<div style="margin-bottom:4px; font-size:14px; color:#aaa;">${label}</div>`;
-                let b = document.createElement('div');
-                b.className = 'board';
-                for (let i = 0; i < 64; i++) {
-                    let r = Math.floor(i/8), c = i%8;
-                    let cell = document.createElement('div');
-                    cell.className = `cell ${((r+c)%2===0)?'light':'dark'}`;
-                    let piece = board[r][c];
-                    if (piece) cell.innerHTML = `<span class="piece ${piece.color}">${SYM[piece.type]}</span>`;
-                    b.appendChild(cell);
-                }
-                div.appendChild(b);
-                return div;
-            };
-
-            grids.appendChild(createMiniHtml(boardWhite, "Вид со стороны Белых"));
-            grids.appendChild(createMiniHtml(boardBlack, "Вид со стороны Чёрных"));
         }
 
         function renderPlayScreen() {
@@ -949,7 +1000,8 @@
             const turnLabel = state.turn === 'white' ? 'Белые' : 'Черные';
             const showDrawBtn = !state.gameOver && onlyKingsLeft();
 
-            app.innerHTML = `
+            // Строим разметку
+            let html = `
                 <div class="title">♔ Victory Chess</div>
                 <div class="game-layout">
                     <div class="board-wrapper">
@@ -958,11 +1010,17 @@
                                 <span class="turn-bullet ${state.turn==='white'?'bullet-white':'bullet-black'}"></span>
                                 <span style="font-weight:600;">${state.gameOver ? 'Игра окончена' : `Ход: ${turnLabel}`}</span>
                             </div>
-                            <span class="timer" id="game-clock">00:00</span>
+                            <span class="timer" id="game-clock">${formatTime(state.elapsedSeconds)}</span>
                             ${showDrawBtn ? `<button class="btn btn-draw" id="drawBtn">🤝 Объявить ничью</button>` : ''}
                             <button class="btn ${state.gameOver ? 'btn-reset' : 'btn-danger'}" id="actionBtn">${state.gameOver ? 'Новая игра' : 'Сдаться'}</button>
                         </div>
                         <div class="board" id="main-board"></div>
+                        ${state.scoutActive ? `
+                            <div class="scout-overlay" id="scoutOverlay">
+                                <div class="scout-title">VIC-SCAN PHASE</div>
+                                <div class="scout-timer-big" id="scoutTimerDisplay">${state.scoutTimer}s</div>
+                            </div>
+                        ` : ''}
                     </div>
                     <div class="side-panel">
                         <div class="panel-title">📋 Протокол матча</div>
@@ -971,6 +1029,9 @@
                 </div>
             `;
 
+            app.innerHTML = html;
+
+            // Обработчики кнопок
             const actionBtn = document.getElementById('actionBtn');
             if (actionBtn) {
                 if (state.gameOver) {
@@ -996,6 +1057,7 @@
                 });
             }
 
+            // Заполняем лог ходов
             const logBox = document.getElementById('g-log');
             logBox.innerHTML = '';
             state.moveLog.forEach((m, i) => {
@@ -1007,6 +1069,7 @@
             });
             logBox.scrollTop = logBox.scrollHeight;
 
+            // Отрисовываем доску
             const mBoard = document.getElementById('main-board');
             mBoard.innerHTML = '';
             for (let r = 0; r < 8; r++) {
@@ -1033,6 +1096,7 @@
                     cell.onclick = () => {
                         if (state.gameOver) return;
                         if (isProcessingMove) return;
+                        if (state.scoutActive) return; // блокируем клики во время разведки
                         if (gameMode === 'single' && state.turn !== playerColor) return;
 
                         const actualRowClick = flipped ? 7 - r : r;
@@ -1058,9 +1122,16 @@
                 }
             }
 
-            if (gameMode === 'single' && !state.gameOver && state.turn === (playerColor === 'white' ? 'black' : 'white') && !isProcessingMove) {
+            // Если одиночная игра и очередь ИИ
+            if (gameMode === 'single' && !state.gameOver && !state.scoutActive && state.turn === (playerColor === 'white' ? 'black' : 'white') && !isProcessingMove) {
                 triggerAIResponse();
             }
+        }
+
+        function formatTime(sec) {
+            const m = String(Math.floor(sec / 60)).padStart(2, '0');
+            const s = String(sec % 60).padStart(2, '0');
+            return `${m}:${s}`;
         }
 
         function startGlobalMatchTimer() {
@@ -1070,9 +1141,7 @@
                 state.elapsedSeconds++;
                 const clock = document.getElementById('game-clock');
                 if (clock) {
-                    const m = String(Math.floor(state.elapsedSeconds/60)).padStart(2,'0');
-                    const s = String(state.elapsedSeconds%60).padStart(2,'0');
-                    clock.innerText = `${m}:${s}`;
+                    clock.innerText = formatTime(state.elapsedSeconds);
                 }
             }, 1000);
         }
@@ -1085,12 +1154,15 @@
             state.phase = 'menu';
             state.selectedPiece = null;
             state.gameOver = false;
+            state.scoutActive = false;
             isProcessingMove = false;
             difficulty = null;
             playerColor = null;
+            if (tg) tg.BackButton.hide();
             renderMainMenu();
         }
 
+        // === Запуск ===
         renderRulesScreen();
     })();
 </script>
