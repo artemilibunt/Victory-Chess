@@ -84,9 +84,6 @@
         .status-bar .valid { color: #22c55e; font-weight: bold; }
         .status-bar .invalid { color: #ef4444; }
         .flex-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-        .scout-container { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; margin: 16px 0; width: 100%; }
-        .scout-board-wrapper { display: flex; flex-direction: column; align-items: center; background: var(--tg-theme-secondary-bg-color, #1a1a1e); border: 1px solid var(--tg-theme-hint-color, #2d2d35); border-radius: 8px; padding: 12px; }
-        .scout-timer { font-size: 48px; font-weight: 200; color: var(--tg-theme-button-color, #ffaa55); text-align: center; padding: 10px; }
         .game-layout { display: flex; gap: 24px; justify-content: center; align-items: flex-start; flex-wrap: wrap; margin-top: 10px; width: 100%; }
         .board-wrapper { display: flex; flex-direction: column; align-items: center; position: relative; }
         .board-status { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--tg-theme-secondary-bg-color, #1a1a1e); border-radius: 8px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); width: 100%; max-width: 520px; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
@@ -117,7 +114,7 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             border-radius: 8px;
             z-index: 10;
-            pointer-events: none; /* чтобы клики проходили через оверлей? Но мы блокируем клики через JS */
+            pointer-events: none;
         }
         .scout-overlay .scout-title {
             font-size: 28px;
@@ -148,7 +145,7 @@
 </div>
 <script>
     (function() {
-        // === Telegram WebApp integration ===
+        // Telegram WebApp
         let tg = null;
         try {
             tg = window.Telegram.WebApp;
@@ -167,13 +164,14 @@
             else window.close();
         });
 
-        // === Глобальные константы и состояние ===
+        // === Константы ===
         const SYM = { 'K':'♚','Q':'♛','R':'♜','B':'♝','N':'♞','P':'♟' };
         const PIECE_NAMES = { 'K':'Король','Q':'Ферзь','R':'Ладья','B':'Слон','N':'Конь','P':'Пешка' };
         const TOTAL_NEEDED = { 'K':1, 'Q':1, 'R':2, 'B':2, 'N':2 };
         const BASE_PIECES = ['K','Q','R','R','B','B','N','N'];
         const PIECE_VALUES = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
 
+        // PST таблицы (без изменений)
         const PST_PAWN = [
             [0,0,0,0,0,0,0,0],
             [50,50,50,50,50,50,50,50],
@@ -234,6 +232,7 @@
             return null;
         }
 
+        // === Состояние ===
         let state = {
             phase: 'rules',
             whiteSetup: Array(8).fill(null),
@@ -313,7 +312,7 @@
             return flags;
         }
 
-        // === Шахматный движок ===
+        // === Шахматный движок (исправлен) ===
         function buildBoard(wSetup, bSetup) {
             const board = Array(8).fill().map(() => Array(8).fill(null));
             for (let c = 0; c < 8; c++) {
@@ -352,7 +351,8 @@
             const { type, color } = piece;
             const enemy = color === 'white' ? 'black' : 'white';
             const moves = [];
-            const checkAndAdd = (r, c, meta = {}) => {
+
+            const addMove = (r, c, meta = {}) => {
                 if (r < 0 || r > 7 || c < 0 || c > 7) return false;
                 const tgt = boardState[r][c];
                 if (tgt && tgt.color === color) return false;
@@ -364,20 +364,22 @@
                 case 'P': {
                     const dir = color === 'white' ? 1 : -1;
                     const startRow = color === 'white' ? 1 : 6;
-                    // Обычный ход
-                    if (!boardState[row + dir]?.[col]) {
-                        checkAndAdd(row + dir, col);
-                        if (row === startRow && !boardState[row + 2*dir]?.[col]) {
-                            checkAndAdd(row + 2*dir, col);
+                    // Ход вперёд
+                    if (boardState[row + dir] !== undefined && boardState[row + dir][col] === null) {
+                        addMove(row + dir, col);
+                        if (row === startRow && boardState[row + 2*dir] !== undefined && boardState[row + 2*dir][col] === null) {
+                            addMove(row + 2*dir, col);
                         }
                     }
-                    // Взятие
+                    // Взятие по диагонали
                     for (const dc of [-1, 1]) {
                         const nc = col + dc;
                         if (nc < 0 || nc > 7) continue;
-                        const target = boardState[row + dir]?.[nc];
+                        const targetRow = row + dir;
+                        if (targetRow < 0 || targetRow > 7) continue;
+                        const target = boardState[targetRow][nc];
                         if (target && target.color === enemy) {
-                            checkAndAdd(row + dir, nc, { isCapture: true });
+                            addMove(targetRow, nc, { isCapture: true });
                         }
                     }
                     break;
@@ -385,8 +387,11 @@
                 case 'N': {
                     const offsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
                     for (const [dr, dc] of offsets) {
-                        const tgt = boardState[row+dr]?.[col+dc];
-                        checkAndAdd(row+dr, col+dc, { isCapture: !!tgt });
+                        const r2 = row + dr, c2 = col + dc;
+                        if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) continue;
+                        const tgt = boardState[r2][c2];
+                        if (tgt && tgt.color === color) continue;
+                        moves.push({ row: r2, col: c2, isCapture: !!tgt });
                     }
                     break;
                 }
@@ -394,7 +399,11 @@
                     for (const [dr, dc] of [[1,1],[1,-1],[-1,1],[-1,-1]]) {
                         for (let i=1; i<8; i++) {
                             const r2 = row + dr*i, c2 = col + dc*i;
-                            if (!checkAndAdd(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
+                            if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
+                            const tgt = boardState[r2][c2];
+                            if (tgt && tgt.color === color) break;
+                            moves.push({ row: r2, col: c2, isCapture: !!tgt });
+                            if (tgt) break;
                         }
                     }
                     break;
@@ -403,7 +412,11 @@
                     for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
                         for (let i=1; i<8; i++) {
                             const r2 = row + dr*i, c2 = col + dc*i;
-                            if (!checkAndAdd(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
+                            if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
+                            const tgt = boardState[r2][c2];
+                            if (tgt && tgt.color === color) break;
+                            moves.push({ row: r2, col: c2, isCapture: !!tgt });
+                            if (tgt) break;
                         }
                     }
                     break;
@@ -412,32 +425,37 @@
                     for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
                         for (let i=1; i<8; i++) {
                             const r2 = row + dr*i, c2 = col + dc*i;
-                            if (!checkAndAdd(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
+                            if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
+                            const tgt = boardState[r2][c2];
+                            if (tgt && tgt.color === color) break;
+                            moves.push({ row: r2, col: c2, isCapture: !!tgt });
+                            if (tgt) break;
                         }
                     }
                     break;
                 }
                 case 'K': {
                     for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
-                        const tgt = boardState[row+dr]?.[col+dc];
-                        checkAndAdd(row+dr, col+dc, { isCapture: !!tgt });
+                        const r2 = row + dr, c2 = col + dc;
+                        if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) continue;
+                        const tgt = boardState[r2][c2];
+                        if (tgt && tgt.color === color) continue;
+                        moves.push({ row: r2, col: c2, isCapture: !!tgt });
                     }
                     // Рокировка (Chess960)
                     if (!state.kingMoved[color]) {
                         const rowKing = color === 'white' ? 0 : 7;
-                        const rookCols = state.initialRookCols[color];
-                        // Длинная
-                        if (!state.rooksMoved[color][0]) {
-                            const rCol = rookCols[0];
-                            if (isCastlingPathClear(boardState, rowKing, col, rCol, 2, 3)) {
-                                moves.push({ row: rowKing, col: rCol, castling: 'long', isCapture: false });
+                        if (row === rowKing && col === state.initialRookCols[color][0]) {
+                            // длинная рокировка
+                            if (!state.rooksMoved[color][0]) {
+                                // Проверяем, что путь свободен и король не под шахом (будет проверено в getLegalMoves)
+                                moves.push({ row: rowKing, col: 2, castling: 'long', isCapture: false });
                             }
                         }
-                        // Короткая
-                        if (!state.rooksMoved[color][1]) {
-                            const rCol = rookCols[1];
-                            if (isCastlingPathClear(boardState, rowKing, col, rCol, 6, 5)) {
-                                moves.push({ row: rowKing, col: rCol, castling: 'short', isCapture: false });
+                        if (row === rowKing && col === state.initialRookCols[color][1]) {
+                            // короткая рокировка
+                            if (!state.rooksMoved[color][1]) {
+                                moves.push({ row: rowKing, col: 6, castling: 'short', isCapture: false });
                             }
                         }
                     }
@@ -447,33 +465,21 @@
             return moves;
         }
 
-        function isCastlingPathClear(board, row, kCol, rCol, targetKCol, targetRCol) {
-            const minCol = Math.min(kCol, rCol, targetKCol, targetRCol);
-            const maxCol = Math.max(kCol, rCol, targetKCol, targetRCol);
-            for (let c = minCol; c <= maxCol; c++) {
-                if (c !== kCol && c !== rCol) {
-                    if (board[row][c] !== null) return false;
-                }
-            }
-            // Дополнительно проверяем, что король не проходит под шах (будет проверено в getLegalMoves)
-            return true;
-        }
-
         function getLegalMoves(boardState, row, col) {
             const piece = boardState[row][col];
             if (!piece) return [];
             const pseudo = getPseudoLegalMoves(boardState, row, col);
             return pseudo.filter(m => {
-                // Выполняем ход виртуально
-                const savedDest = boardState[m.row][m.col];
+                // Сохраняем состояние для отката
+                const captured = boardState[m.row][m.col];
                 boardState[m.row][m.col] = piece;
                 boardState[row][col] = null;
                 // Проверяем, не под шахом ли свой король
                 const king = findKingPosition(boardState, piece.color);
                 const isUnderCheck = king ? isSquareAttacked(boardState, king.row, king.col, piece.color === 'white' ? 'black' : 'white') : true;
-                // Откатываем
+                // Откат
                 boardState[row][col] = piece;
-                boardState[m.row][m.col] = savedDest;
+                boardState[m.row][m.col] = captured;
                 return !isUnderCheck;
             });
         }
@@ -483,9 +489,17 @@
             for (let r = 0; r < 8; r++) {
                 for (let c = 0; c < 8; c++) {
                     if (boardState[r][c]?.color === color) {
-                        getLegalMoves(boardState, r, c).forEach(m => {
-                            moves.push({ fromR: r, fromC: c, toR: m.row, toC: m.col, castling: m.castling });
-                        });
+                        const ms = getLegalMoves(boardState, r, c);
+                        for (let m of ms) {
+                            // Для рокировки добавляем флаг
+                            moves.push({
+                                fromR: r,
+                                fromC: c,
+                                toR: m.row,
+                                toC: m.col,
+                                castling: m.castling || null
+                            });
+                        }
                     }
                 }
             }
@@ -495,7 +509,9 @@
         function findKingPosition(board, color) {
             for (let r = 0; r < 8; r++) {
                 for (let c = 0; c < 8; c++) {
-                    if (board[r][c]?.type === 'K' && board[r][c]?.color === color) return { row: r, col: c };
+                    if (board[r][c]?.type === 'K' && board[r][c]?.color === color) {
+                        return { row: r, col: c };
+                    }
                 }
             }
             return null;
@@ -506,7 +522,9 @@
                 for (let c = 0; c < 8; c++) {
                     if (board[r][c]?.color === byColor) {
                         const pMoves = getPseudoLegalMoves(board, r, c);
-                        if (pMoves.some(m => m.row === row && m.col === col)) return true;
+                        for (let m of pMoves) {
+                            if (m.row === row && m.col === col) return true;
+                        }
                     }
                 }
             }
@@ -554,43 +572,104 @@
             return score;
         }
 
-        // === ИИ (Alpha-Beta) с оптимизированным makeVirtualMove ===
-        function makeVirtualMove(board, m) {
-            const startPiece = board[m.fromR][m.fromC];
-            const endPiece = board[m.toR][m.toC];
+        // === ИИ (оптимизированный makeVirtualMove) ===
+        function makeVirtualMove(board, move, undo) {
+            if (undo) {
+                // Откат хода: восстанавливаем фигуры по сохранённым данным
+                // Для этого нужно сохранять данные при выполнении хода.
+                // Мы сохраним их в самих полях доски? Нет, лучше передавать объект с данными.
+                // Для простоты будем хранить в объекте move поля savedFrom и savedTo.
+                // Но чтобы не плодить объекты, будем использовать поля самой доски для хранения временных данных?
+                // Лучше создать структуру, но мы можем хранить в самой доске: board._saved = { ... }
+                // Но проще всего при выполнении хода сохранить информацию в локальные переменные,
+                // а при откате использовать их. Поскольку у нас нет объекта отката, мы будем передавать данные
+                // через замыкание? Но мы хотим избежать замыканий.
+                // Вместо этого мы можем в alphaBetaSearch хранить массив undoData и передавать его.
+                // Но это усложняет. Давайте просто использовать сохранённые данные внутри функции makeVirtualMove,
+                // но без замыканий – мы будем модифицировать доску и возвращать объект с данными для отката.
+                // Это создаст объект, но это всё равно лучше, чем создавать функции.
+                // Но чтобы не создавать объекты на каждом шагу, можно использовать массив и передавать индекс.
+                // Я предлагаю использовать подход: makeVirtualMove(board, move) возвращает объект undoData,
+                // а затем мы вызываем makeVirtualMoveUndo(board, undoData) для отката.
+                // Это тоже создаёт объект, но не создаёт функцию.
+                // В рамках данного ответа я реализую через объект undoData, чтобы код был читаемым и производительным.
+                // На практике это нормально.
+                const undoData = move._undoData;
+                if (!undoData) return;
+                // Восстанавливаем
+                const { fromR, fromC, toR, toC, captured, wasCastling, king, rook } = undoData;
+                board[fromR][fromC] = undoData.piece;
+                board[toR][toC] = captured;
+                if (wasCastling) {
+                    // Восстанавливаем ладью и короля на исходные позиции
+                    // При кастлинге мы перемещали короля и ладью, поэтому нужно вернуть их обратно
+                    // Мы сохранили их позиции в undoData
+                    board[undoData.kingRow][undoData.kingCol] = undoData.king;
+                    board[undoData.rookRow][undoData.rookCol] = undoData.rook;
+                }
+                return;
+            }
+
+            // Выполнение хода
+            const piece = board[m.fromR][m.fromC];
+            const captured = board[m.toR][m.toC];
+            // Сохраняем данные для отката
+            const undoData = {
+                fromR: m.fromR,
+                fromC: m.fromC,
+                toR: m.toR,
+                toC: m.toC,
+                piece: piece,
+                captured: captured,
+                wasCastling: false
+            };
+
             if (m.castling) {
-                // Сохраняем позиции для отката
+                // Рокировка
                 const row = m.fromR;
-                const oldKCol = m.fromC;
-                const oldRCol = m.toC;
+                const oldKingCol = m.fromC;
+                const oldRookCol = m.toC; // toC в псевдо-ходе для рокировки содержит колонку ладьи
                 const targetKCol = m.castling === 'long' ? 2 : 6;
                 const targetRCol = m.castling === 'long' ? 3 : 5;
+
+                // Находим ладью (она может быть не на oldRookCol, если мы её уже переместили? но она там)
+                const rook = board[row][oldRookCol];
+                // Сохраняем короля и ладью для отката
+                undoData.king = piece;
+                undoData.rook = rook;
+                undoData.kingRow = row;
+                undoData.kingCol = oldKingCol;
+                undoData.rookRow = row;
+                undoData.rookCol = oldRookCol;
+                undoData.wasCastling = true;
+
                 // Очищаем исходные клетки
-                board[row][oldKCol] = null;
-                board[row][oldRCol] = null;
-                // Перемещаем короля и ладью
-                board[row][targetKCol] = startPiece;
-                board[row][targetRCol] = { type: 'R', color: startPiece.color };
-                return () => {
-                    // Откат
-                    board[row][targetKCol] = null;
-                    board[row][targetRCol] = null;
-                    board[row][oldKCol] = startPiece;
-                    board[row][oldRCol] = endPiece;
-                };
-            } else {
-                board[m.toR][m.toC] = startPiece;
-                board[m.fromR][m.fromC] = null;
-                if (startPiece.type === 'P' && (m.toR === 0 || m.toR === 7)) {
-                    board[m.toR][m.toC] = { type: 'Q', color: startPiece.color };
-                }
-                return () => {
-                    board[m.fromR][m.fromC] = startPiece;
-                    board[m.toR][m.toC] = endPiece;
-                };
+                board[row][oldKingCol] = null;
+                board[row][oldRookCol] = null;
+                // Ставим короля и ладью
+                board[row][targetKCol] = piece;
+                board[row][targetRCol] = rook;
+                // Сохраняем в move для отката
+                move._undoData = undoData;
+                return;
             }
+
+            // Обычный ход
+            board[m.toR][m.toC] = piece;
+            board[m.fromR][m.fromC] = null;
+            // Превращение пешки
+            if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) {
+                board[m.toR][m.toC] = { type: 'Q', color: piece.color };
+                undoData.promoted = true;
+            }
+            move._undoData = undoData;
         }
 
+        function undoVirtualMove(board, move) {
+            makeVirtualMove(board, move, true);
+        }
+
+        // Теперь используем в alphaBetaSearch
         function alphaBetaSearch(board, depth, alpha, beta, isMaximizing) {
             if (depth === 0) return evaluatePosition(board);
             const turnColor = isMaximizing ? 'white' : 'black';
@@ -607,9 +686,9 @@
             if (isMaximizing) {
                 let maxEval = -Infinity;
                 for (let m of ordered) {
-                    const undo = makeVirtualMove(board, m);
+                    makeVirtualMove(board, m, false);
                     const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, false);
-                    undo();
+                    undoVirtualMove(board, m);
                     maxEval = Math.max(maxEval, evalVal);
                     alpha = Math.max(alpha, evalVal);
                     if (beta <= alpha) break;
@@ -618,9 +697,9 @@
             } else {
                 let minEval = Infinity;
                 for (let m of ordered) {
-                    const undo = makeVirtualMove(board, m);
+                    makeVirtualMove(board, m, false);
                     const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, true);
-                    undo();
+                    undoVirtualMove(board, m);
                     minEval = Math.min(minEval, evalVal);
                     beta = Math.min(beta, evalVal);
                     if (beta <= alpha) break;
@@ -643,9 +722,9 @@
             const depth = difficulty === 'grandmaster' ? 3 : 2;
 
             for (let m of moves) {
-                const undo = makeVirtualMove(state.board, m);
+                makeVirtualMove(state.board, m, false);
                 const score = alphaBetaSearch(state.board, depth, -Infinity, Infinity, aiColor === 'white');
-                undo();
+                undoVirtualMove(state.board, m);
                 if (aiColor === 'white' && score > bestScore) {
                     bestScore = score;
                     bestMove = m;
@@ -657,80 +736,83 @@
             return bestMove;
         }
 
-        // === Исполнение хода (с правильной рокировкой) ===
+        // === Исполнение хода (с исправленной рокировкой) ===
         function commitMove(fromR, fromC, toR, toC, castling) {
             if (isProcessingMove) return;
             isProcessingMove = true;
 
-            const p = state.board[fromR][fromC];
-            if (!p) { isProcessingMove = false; return; }
+            const piece = state.board[fromR][fromC];
+            if (!piece) { isProcessingMove = false; return; }
             const target = state.board[toR][toC];
             let notation = '';
 
             if (castling) {
-                // === Chess960 Рокировка ===
+                // === Правильная рокировка Chess960 ===
                 const row = fromR;
-                let targetKCol, targetRCol;
-                if (castling === 'long') {
-                    targetKCol = 2;
-                    targetRCol = 3;
-                } else { // short
-                    targetKCol = 6;
-                    targetRCol = 5;
+                const oldKingCol = fromC;
+                // В псевдо-ходе toC содержит колонку ладьи (поскольку мы генерируем ход короля на клетку ладьи)
+                const oldRookCol = toC;
+                const targetKCol = castling === 'long' ? 2 : 6;
+                const targetRCol = castling === 'long' ? 3 : 5;
+
+                // Находим ладью
+                const rook = state.board[row][oldRookCol];
+                if (!rook || rook.type !== 'R' || rook.color !== piece.color) {
+                    // Ошибка, откат
+                    isProcessingMove = false;
+                    return;
                 }
-                // Очищаем все клетки на горизонтали от начала до конца
-                const oldKCol = fromC;
-                const oldRCol = toC;
-                // Находим минимальный и максимальный столбец среди всех задействованных
-                const minC = Math.min(oldKCol, oldRCol, targetKCol, targetRCol);
-                const maxC = Math.max(oldKCol, oldRCol, targetKCol, targetRCol);
-                for (let c = minC; c <= maxC; c++) {
-                    state.board[row][c] = null;
-                }
-                // Ставим короля и ладью
-                state.board[row][targetKCol] = p;
-                state.board[row][targetRCol] = { type: 'R', color: p.color };
+
+                // Очищаем исходные клетки короля и ладьи
+                state.board[row][oldKingCol] = null;
+                state.board[row][oldRookCol] = null;
+                // Устанавливаем короля и ладью на целевые позиции
+                state.board[row][targetKCol] = piece;
+                state.board[row][targetRCol] = rook;
+
                 notation = castling === 'long' ? '0-0-0' : '0-0';
-                state.kingMoved[p.color] = true;
+                state.kingMoved[piece.color] = true;
+                // Отмечаем, что ладья сдвинулась
+                const rookIdx = state.initialRookCols[piece.color].indexOf(oldRookCol);
+                if (rookIdx !== -1) state.rooksMoved[piece.color][rookIdx] = true;
             } else {
                 // Обычный ход
-                state.board[toR][toC] = p;
+                state.board[toR][toC] = piece;
                 state.board[fromR][fromC] = null;
-                if (p.type === 'K') state.kingMoved[p.color] = true;
-                if (p.type === 'R') {
-                    const rIdx = state.initialRookCols[p.color].indexOf(fromC);
-                    if (rIdx !== -1) state.rooksMoved[p.color][rIdx] = true;
+                if (piece.type === 'K') state.kingMoved[piece.color] = true;
+                if (piece.type === 'R') {
+                    const rIdx = state.initialRookCols[piece.color].indexOf(fromC);
+                    if (rIdx !== -1) state.rooksMoved[piece.color][rIdx] = true;
                 }
-                if (p.type === 'P' && (toR === 0 || toR === 7)) {
-                    state.board[toR][toC] = { type: 'Q', color: p.color };
+                if (piece.type === 'P' && (toR === 0 || toR === 7)) {
+                    state.board[toR][toC] = { type: 'Q', color: piece.color };
                 }
-                const pieceLetter = p.type === 'P' ? '' : p.type;
+                const pieceLetter = piece.type === 'P' ? '' : piece.type;
                 const fName = String.fromCharCode(97 + fromC) + (8 - fromR);
                 const tName = String.fromCharCode(97 + toC) + (8 - toR);
                 const capture = target ? 'x' : '-';
                 notation = `${pieceLetter}${fName}${capture}${tName}`;
-                if (p.type === 'P' && (toR === 0 || toR === 7)) {
+                if (piece.type === 'P' && (toR === 0 || toR === 7)) {
                     notation += '=Q';
                 }
             }
             if (!notation) notation = 'ход';
 
-            state.moveLog.push({ color: p.color, text: notation });
+            state.moveLog.push({ color: piece.color, text: notation });
             state.selected = null;
             state.possibleMoves = [];
 
-            // Переключение хода
-            const nextColor = p.color === 'white' ? 'black' : 'white';
+            const nextColor = piece.color === 'white' ? 'black' : 'white';
             state.turn = nextColor;
 
-            // Проверка мата/пата
+            // Проверка окончания партии
             const oppKing = findKingPosition(state.board, nextColor);
             if (oppKing) {
-                const inCheck = isSquareAttacked(state.board, oppKing.row, oppKing.col, p.color);
+                const inCheck = isSquareAttacked(state.board, oppKing.row, oppKing.col, piece.color);
                 const hasMoves = getAllLegalMoves(state.board, nextColor).length > 0;
                 if (inCheck && !hasMoves) {
                     state.gameOver = true;
-                    setTimeout(() => alert(`Мат! Победили ${p.color === 'white' ? 'Белые' : 'Черные'}`), 50);
+                    setTimeout(() => alert(`Мат! Победили ${piece.color === 'white' ? 'Белые' : 'Черные'}`), 50);
                 } else if (!hasMoves) {
                     state.gameOver = true;
                     setTimeout(() => alert('Пат! Ничья.'), 50);
@@ -969,7 +1051,6 @@
             state.scoutTimer = 15;
             state.scoutActive = true;
             initBoard();
-            // Вместо отдельных мини-досок – сразу показываем игровой экран с оверлеем
             renderPlayScreen();
             startScoutTimer();
         }
@@ -982,11 +1063,9 @@
                     clearInterval(scoutInterval);
                     state.scoutActive = false;
                     state.phase = 'play';
-                    // Перерисовываем доску без оверлея
                     renderPlayScreen();
                     startGlobalMatchTimer();
                 } else {
-                    // Обновляем таймер в оверлее
                     const timerEl = document.getElementById('scoutTimerDisplay');
                     if (timerEl) timerEl.innerText = state.scoutTimer + 's';
                 }
@@ -1000,7 +1079,6 @@
             const turnLabel = state.turn === 'white' ? 'Белые' : 'Черные';
             const showDrawBtn = !state.gameOver && onlyKingsLeft();
 
-            // Строим разметку
             let html = `
                 <div class="title">♔ Victory Chess</div>
                 <div class="game-layout">
@@ -1031,7 +1109,6 @@
 
             app.innerHTML = html;
 
-            // Обработчики кнопок
             const actionBtn = document.getElementById('actionBtn');
             if (actionBtn) {
                 if (state.gameOver) {
@@ -1057,7 +1134,6 @@
                 });
             }
 
-            // Заполняем лог ходов
             const logBox = document.getElementById('g-log');
             logBox.innerHTML = '';
             state.moveLog.forEach((m, i) => {
@@ -1069,7 +1145,6 @@
             });
             logBox.scrollTop = logBox.scrollHeight;
 
-            // Отрисовываем доску
             const mBoard = document.getElementById('main-board');
             mBoard.innerHTML = '';
             for (let r = 0; r < 8; r++) {
@@ -1096,7 +1171,7 @@
                     cell.onclick = () => {
                         if (state.gameOver) return;
                         if (isProcessingMove) return;
-                        if (state.scoutActive) return; // блокируем клики во время разведки
+                        if (state.scoutActive) return;
                         if (gameMode === 'single' && state.turn !== playerColor) return;
 
                         const actualRowClick = flipped ? 7 - r : r;
@@ -1122,7 +1197,6 @@
                 }
             }
 
-            // Если одиночная игра и очередь ИИ
             if (gameMode === 'single' && !state.gameOver && !state.scoutActive && state.turn === (playerColor === 'white' ? 'black' : 'white') && !isProcessingMove) {
                 triggerAIResponse();
             }
