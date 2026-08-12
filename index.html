@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Victory Chess</title>
-    <!-- Telegram Web App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,7 +21,6 @@
         }
         .container { max-width: 1200px; width: 100%; display: flex; flex-direction: column; align-items: center; }
         
-        /* Кнопка закрытия (для Telegram) */
         .tg-close-btn {
             position: fixed;
             top: 8px;
@@ -43,17 +41,7 @@
         }
         .tg-close-btn:hover { opacity: 0.8; }
 
-        /* Общие компоненты с использованием CSS-переменных Telegram */
-        .btn {
-            background: var(--tg-theme-secondary-bg-color, #1a1a1e);
-            border: 1px solid var(--tg-theme-hint-color, #2d2d35);
-            color: var(--tg-theme-text-color, #eee);
-            padding: 8px 18px;
-            border-radius: 6px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
+        .btn { background: var(--tg-theme-secondary-bg-color, #1a1a1e); border: 1px solid var(--tg-theme-hint-color, #2d2d35); color: var(--tg-theme-text-color, #eee); padding: 8px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
         .btn:hover:not(:disabled) { background: var(--tg-theme-bg-color, #25252b); border-color: var(--tg-theme-button-color, #8a2be2); }
         .btn:disabled { opacity: 0.3; cursor: not-allowed; }
         .btn-primary { background: var(--tg-theme-button-color, #2563eb); border-color: var(--tg-theme-button-color, #3b82f6); color: var(--tg-theme-button-text-color, #fff); }
@@ -78,40 +66,12 @@
         .title span { color: var(--tg-theme-button-color, #8a2be2); font-weight: 700; }
         .subtitle { text-align: center; font-size: 15px; color: var(--tg-theme-hint-color, #666); margin-bottom: 20px; }
         
-        .rules-container {
-            max-width: 720px;
-            background: var(--tg-theme-secondary-bg-color, #1a1a1e);
-            border: 1px solid var(--tg-theme-hint-color, #2d2d35);
-            border-radius: 16px;
-            padding: 40px 48px;
-            margin-top: 20px;
-            text-align: left;
-            line-height: 1.6;
-            color: var(--tg-theme-text-color, #ccc);
-        }
-        .rules-container h2 {
-            text-align: center;
-            color: var(--tg-theme-button-color, #8a2be2);
-            font-weight: 300;
-            letter-spacing: 2px;
-            margin-bottom: 20px;
-        }
-        .rules-container ul {
-            list-style: none;
-            padding-left: 0;
-        }
-        .rules-container ul li::before {
-            content: "• ";
-            color: var(--tg-theme-button-color, #8a2be2);
-            font-weight: bold;
-        }
-        .rules-container .highlight {
-            color: var(--tg-theme-hint-color, #ffaa55);
-        }
-        .rules-container .btn-wrap {
-            text-align: center;
-            margin-top: 30px;
-        }
+        .rules-container { max-width: 720px; background: var(--tg-theme-secondary-bg-color, #1a1a1e); border: 1px solid var(--tg-theme-hint-color, #2d2d35); border-radius: 16px; padding: 40px 48px; margin-top: 20px; text-align: left; line-height: 1.6; color: var(--tg-theme-text-color, #ccc); }
+        .rules-container h2 { text-align: center; color: var(--tg-theme-button-color, #8a2be2); font-weight: 300; letter-spacing: 2px; margin-bottom: 20px; }
+        .rules-container ul { list-style: none; padding-left: 0; }
+        .rules-container ul li::before { content: "• "; color: var(--tg-theme-button-color, #8a2be2); font-weight: bold; }
+        .rules-container .highlight { color: var(--tg-theme-hint-color, #ffaa55); }
+        .rules-container .btn-wrap { text-align: center; margin-top: 30px; }
         
         .menu-container { display: flex; flex-direction: column; align-items: center; margin-top: 20px; gap: 15px; background: var(--tg-theme-secondary-bg-color, #1a1a1e); padding: 40px; border-radius: 12px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); width: 100%; max-width: 600px; }
         
@@ -150,12 +110,7 @@
         .game-layout { display: flex; gap: 24px; justify-content: center; align-items: flex-start; flex-wrap: wrap; margin-top: 10px; width: 100%; }
         .board-wrapper { display: flex; flex-direction: column; align-items: center; position: relative; }
         
-        .board-status {
-            display: flex; align-items: center; justify-content: space-between; padding: 10px 16px;
-            background: var(--tg-theme-secondary-bg-color, #1a1a1e); border-radius: 8px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); width: 100%; max-width: 520px; margin-bottom: 12px;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
+        .board-status { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--tg-theme-secondary-bg-color, #1a1a1e); border-radius: 8px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); width: 100%; max-width: 520px; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
         .turn-box { display: flex; align-items: center; gap: 8px; font-size: 16px; }
         .turn-bullet { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
         .bullet-white { background: #fff; box-shadow: 0 0 8px #fff; }
@@ -191,18 +146,15 @@
 <body>
 
 <div class="container" id="app">
-    <!-- Кнопка закрытия Telegram Mini App -->
     <button class="tg-close-btn" id="tgCloseBtn" aria-label="Закрыть">✕</button>
 </div>
 
 <script>
-    // Инициализация Telegram Web App
     let tg = null;
     try {
         tg = window.Telegram.WebApp;
-        tg.expand(); // Растянуть на всё доступное пространство
+        tg.expand();
         tg.setHeaderColor('secondary_bg_color');
-        // Применяем тему Telegram к CSS-переменным
         document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#121214');
         document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color || '#eee');
         document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color || '#2d2d35');
@@ -210,23 +162,13 @@
         document.documentElement.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color || '#8a2be2');
         document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color || '#fff');
         document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', tg.themeParams.secondary_bg_color || '#1a1a1e');
-    } catch(e) {
-        // Если запущено вне Telegram – используем стандартные цвета
-        console.log('Запуск вне Telegram');
-    }
+    } catch(e) {}
 
-    // Обработчик кнопки закрытия
     document.getElementById('tgCloseBtn').addEventListener('click', function() {
-        if (tg && tg.close) {
-            tg.close();
-        } else {
-            window.close();
-        }
+        if (tg && tg.close) tg.close();
+        else window.close();
     });
 
-    // =================================================================
-    // ПОЛНАЯ ЛОГИКА ИГРЫ (вставлена из последней стабильной версии)
-    // =================================================================
     (function() {
         const SYM = { 'K':'♚','Q':'♛','R':'♜','B':'♝','N':'♞','P':'♟' };
         const PIECE_NAMES = { 'K':'Король','Q':'Ферзь','R':'Ладья','B':'Слон','N':'Конь','P':'Пешка' };
@@ -234,56 +176,55 @@
         const BASE_PIECES = ['K','Q','R','R','B','B','N','N'];
         const PIECE_VALUES = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
 
-        // Позиционные таблицы (пешки, кони, слоны, ладьи, ферзи)
         const PST_PAWN = [
-            [0,  0,  0,  0,  0,  0,  0,  0],
-            [50, 50, 50, 50, 50, 50, 50, 50],
-            [10, 10, 20, 30, 30, 20, 10, 10],
-            [5,  5, 10, 25, 25, 10,  5,  5],
-            [0,  0,  0, 20, 20,  0,  0,  0],
-            [5, -5,-10,  0,  0,-10, -5,  5],
-            [5, 10, 10,-20,-20, 10, 10,  5],
-            [0,  0,  0,  0,  0,  0,  0,  0]
+            [0,0,0,0,0,0,0,0],
+            [50,50,50,50,50,50,50,50],
+            [10,10,20,30,30,20,10,10],
+            [5,5,10,25,25,10,5,5],
+            [0,0,0,20,20,0,0,0],
+            [5,-5,-10,0,0,-10,-5,5],
+            [5,10,10,-20,-20,10,10,5],
+            [0,0,0,0,0,0,0,0]
         ];
         const PST_KNIGHT = [
             [-50,-40,-30,-30,-30,-30,-40,-50],
-            [-40,-20,  0,  0,  0,  0,-20,-40],
-            [-30,  0, 10, 15, 15, 10,  0,-30],
-            [-30,  5, 15, 20, 20, 15,  5,-30],
-            [-30,  0, 15, 20, 20, 15,  0,-30],
-            [-30,  5, 10, 15, 15, 10,  5,-30],
-            [-40,-20,  0,  5,  5,  0,-20,-40],
+            [-40,-20,0,0,0,0,-20,-40],
+            [-30,0,10,15,15,10,0,-30],
+            [-30,5,15,20,20,15,5,-30],
+            [-30,0,15,20,20,15,0,-30],
+            [-30,5,10,15,15,10,5,-30],
+            [-40,-20,0,5,5,0,-20,-40],
             [-50,-40,-30,-30,-30,-30,-40,-50]
         ];
         const PST_BISHOP = [
             [-20,-10,-10,-10,-10,-10,-10,-20],
-            [-10,  0,  0,  0,  0,  0,  0,-10],
-            [-10,  0,  5, 10, 10,  5,  0,-10],
-            [-10,  5,  5, 10, 10,  5,  5,-10],
-            [-10,  0, 10, 10, 10, 10,  0,-10],
-            [-10, 10, 10, 10, 10, 10, 10,-10],
-            [-10,  5,  0,  0,  0,  0,  5,-10],
+            [-10,0,0,0,0,0,0,-10],
+            [-10,0,5,10,10,5,0,-10],
+            [-10,5,5,10,10,5,5,-10],
+            [-10,0,10,10,10,10,0,-10],
+            [-10,10,10,10,10,10,10,-10],
+            [-10,5,0,0,0,0,5,-10],
             [-20,-10,-10,-10,-10,-10,-10,-20]
         ];
         const PST_ROOK = [
-            [0,  0,  0,  0,  0,  0,  0,  0],
-            [5, 10, 10, 10, 10, 10, 10,  5],
-            [-5,  0,  0,  0,  0,  0,  0, -5],
-            [-5,  0,  0,  0,  0,  0,  0, -5],
-            [-5,  0,  0,  0,  0,  0,  0, -5],
-            [-5,  0,  0,  0,  0,  0,  0, -5],
-            [-5,  0,  0,  0,  0,  0,  0, -5],
-            [0,  0,  0,  5,  5,  0,  0,  0]
+            [0,0,0,0,0,0,0,0],
+            [5,10,10,10,10,10,10,5],
+            [-5,0,0,0,0,0,0,-5],
+            [-5,0,0,0,0,0,0,-5],
+            [-5,0,0,0,0,0,0,-5],
+            [-5,0,0,0,0,0,0,-5],
+            [-5,0,0,0,0,0,0,-5],
+            [0,0,0,5,5,0,0,0]
         ];
         const PST_QUEEN = [
-            [-20,-10,-10, -5, -5,-10,-10,-20],
-            [-10,  0,  0,  0,  0,  0,  0,-10],
-            [-10,  0,  5,  5,  5,  5,  0,-10],
-            [-5,  0,  5,  5,  5,  5,  0, -5],
-            [0,  0,  5,  5,  5,  5,  0, -5],
-            [-10,  5,  5,  5,  5,  5,  0,-10],
-            [-10,  0,  5,  0,  0,  0,  0,-10],
-            [-20,-10,-10, -5, -5,-10,-10,-20]
+            [-20,-10,-10,-5,-5,-10,-10,-20],
+            [-10,0,0,0,0,0,0,-10],
+            [-10,0,5,5,5,5,0,-10],
+            [-5,0,5,5,5,5,0,-5],
+            [0,0,5,5,5,5,0,-5],
+            [-10,5,5,5,5,5,0,-10],
+            [-10,0,5,0,0,0,0,-10],
+            [-20,-10,-10,-5,-5,-10,-10,-20]
         ];
 
         function getPiecePST(type) {
@@ -321,9 +262,6 @@
         let isProcessingMove = false;
         const app = document.getElementById('app');
 
-        // --------------------------------------------------------------
-        // Генерация валидных расстановок (576)
-        // --------------------------------------------------------------
         function generateValidRandomSetup(isWhiteSide) {
             let attempts = 0;
             while (attempts < 5000) {
@@ -377,9 +315,6 @@
             return flags;
         }
 
-        // --------------------------------------------------------------
-        // Шахматный движок
-        // --------------------------------------------------------------
         function buildBoard(wSetup, bSetup) {
             const board = Array(8).fill().map(() => Array(8).fill(null));
             for (let c = 0; c < 8; c++) {
@@ -565,9 +500,6 @@
             return false;
         }
 
-        // --------------------------------------------------------------
-        // Оценка позиции (оптимизировано: без мобильности)
-        // --------------------------------------------------------------
         function evaluatePosition(board) {
             let score = 0;
             for (let r = 0; r < 8; r++) {
@@ -588,9 +520,6 @@
             return score;
         }
 
-        // --------------------------------------------------------------
-        // ИИ (Alpha-Beta с сортировкой ходов)
-        // --------------------------------------------------------------
         function orderMoves(board, moves, isMaximizing) {
             const scored = moves.map(m => {
                 let score = 0;
@@ -665,6 +594,9 @@
             } else {
                 board[m.toR][m.toC] = startPiece;
                 board[m.fromR][m.fromC] = null;
+                if (startPiece.type === 'P' && (m.toR === 0 || m.toR === 7)) {
+                    board[m.toR][m.toC] = { type: 'Q', color: startPiece.color };
+                }
                 return () => {
                     board[m.fromR][m.fromC] = startPiece;
                     board[m.toR][m.toC] = endPiece;
@@ -694,9 +626,6 @@
             return optimalMove;
         }
 
-        // --------------------------------------------------------------
-        // Управление игровым процессом
-        // --------------------------------------------------------------
         function commitMove(fromR, fromC, toR, toC, castling) {
             if (isProcessingMove) return;
             isProcessingMove = true;
@@ -777,6 +706,9 @@
             }
         }
 
+        // ================================================================
+        // ИСПРАВЛЕННАЯ triggerAIResponse
+        // ================================================================
         function triggerAIResponse() {
             if (state.gameOver) return;
             if (isProcessingMove) return;
@@ -789,17 +721,29 @@
                 if (aiMove) {
                     commitMove(aiMove.fromR, aiMove.fromC, aiMove.toR, aiMove.toC, aiMove.castling);
                 } else {
-                    const aiKing = findKingPosition(state.board, aiColor);
-                    if (aiKing && !isSquareAttacked(state.board, aiKing.row, aiKing.col, playerColor)) {
-                        state.gameOver = true;
-                        alert('Пат! Ничья.');
+                    // Проверяем, есть ли у ИИ легальные ходы
+                    const moves = getAllLegalMoves(state.board, aiColor);
+                    if (moves.length === 0) {
+                        const king = findKingPosition(state.board, aiColor);
+                        if (king && isSquareAttacked(state.board, king.row, king.col, playerColor)) {
+                            state.gameOver = true;
+                            alert(`Мат! Победили ${playerColor === 'white' ? 'Белые' : 'Черные'}`);
+                        } else {
+                            state.gameOver = true;
+                            alert('Пат! Ничья.');
+                        }
                         renderPlayScreen();
+                    } else {
+                        // Fallback: если ходы есть, но AI вернул null (ошибка), берём случайный
+                        const randomMove = moves[Math.floor(Math.random() * moves.length)];
+                        if (randomMove) {
+                            commitMove(randomMove.fromR, randomMove.fromC, randomMove.toR, randomMove.toC, randomMove.castling);
+                        }
                     }
                 }
             }, 300);
         }
 
-        // ========== ПРОВЕРКА «ТОЛЬКО КОРОЛИ» ==========
         function onlyKingsLeft() {
             if (!state.board) return false;
             let whiteKing = false, blackKing = false;
@@ -818,10 +762,7 @@
             return whiteKing && blackKing;
         }
 
-        // ==============================================================
-        // ОТРИСОВКА ЭКРАНОВ
-        // ==============================================================
-
+        // ========== Отрисовка экранов ==========
         function renderRulesScreen() {
             app.innerHTML = `
                 <div class="title">♔ Victory Chess</div>
@@ -1027,9 +968,7 @@
             grids.appendChild(createMiniHtml(boardBlack, "Вид со стороны Чёрных"));
         }
 
-        // ========== ИГРОВОЙ ЭКРАН (с правильной ориентацией) ==========
         function renderPlayScreen() {
-            // В одиночной игре переворачиваем доску только если игрок играет за чёрных
             const flipped = (gameMode === 'single' && playerColor === 'black');
             const displayBoard = flipped ? flipBoard(state.board) : state.board;
 
@@ -1178,7 +1117,6 @@
             renderMainMenu();
         }
 
-        // ========== СТАРТ ==========
         renderRulesScreen();
     })();
 </script>
