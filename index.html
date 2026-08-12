@@ -148,7 +148,6 @@
         const BASE_PIECES = ['K','Q','R','R','B','B','N','N'];
         const PIECE_VALUES = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
 
-        // позиционные таблицы (без изменений)
         const PST_PAWN = [
             [0,0,0,0,0,0,0,0],
             [50,50,50,50,50,50,50,50],
@@ -235,9 +234,9 @@
         let isProcessingMove = false;
         const app = document.getElementById('app');
 
-        // генерация (без изменений)
         function generateValidRandomSetup(isWhiteSide) {
-            for (let attempts = 0; attempts < 5000; attempts++) {
+            let attempts = 0;
+            while (attempts < 5000) {
                 const arr = [...BASE_PIECES];
                 for (let i = arr.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
@@ -245,6 +244,7 @@
                 }
                 const res = validateArrayRules(arr, isWhiteSide);
                 if (res.valid) return arr;
+                attempts++;
             }
             return ['R','N','B','Q','K','B','N','R'];
         }
@@ -287,7 +287,6 @@
             return flags;
         }
 
-        // Шахматный движок (без изменений, но учтено превращение)
         function buildBoard(wSetup, bSetup) {
             const board = Array(8).fill().map(() => Array(8).fill(null));
             for (let c = 0; c < 8; c++) {
@@ -493,24 +492,20 @@
             return score;
         }
 
-        function orderMoves(board, moves) {
-            return moves.slice().sort((a, b) => {
-                const scoreA = getMoveScore(board, a);
-                const scoreB = getMoveScore(board, b);
-                return scoreB - scoreA;
+        function orderMoves(board, moves, isMaximizing) {
+            const scored = moves.map(m => {
+                let score = 0;
+                const target = board[m.toR][m.toC];
+                const piece = board[m.fromR][m.fromC];
+                if (target) {
+                    score = PIECE_VALUES[target.type] - PIECE_VALUES[piece.type];
+                }
+                if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) score += 50;
+                if (m.castling) score += 30;
+                return { move: m, score: score };
             });
-        }
-
-        function getMoveScore(board, m) {
-            let score = 0;
-            const target = board[m.toR][m.toC];
-            const piece = board[m.fromR][m.fromC];
-            if (target) {
-                score = PIECE_VALUES[target.type] - PIECE_VALUES[piece.type];
-            }
-            if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) score += 50;
-            if (m.castling) score += 30;
-            return score;
+            scored.sort((a, b) => b.score - a.score);
+            return scored.map(s => s.move);
         }
 
         function alphaBetaSearch(board, depth, alpha, beta, isMaximizing) {
@@ -525,10 +520,11 @@
                 return 0;
             }
 
-            const ordered = orderMoves(board, moves);
+            const orderedMoves = orderMoves(board, moves, isMaximizing);
+
             if (isMaximizing) {
                 let maxEval = -Infinity;
-                for (let m of ordered) {
+                for (let m of orderedMoves) {
                     const undo = makeVirtualMove(board, m);
                     const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, false);
                     undo();
@@ -539,7 +535,7 @@
                 return maxEval;
             } else {
                 let minEval = Infinity;
-                for (let m of ordered) {
+                for (let m of orderedMoves) {
                     const undo = makeVirtualMove(board, m);
                     const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, true);
                     undo();
@@ -590,9 +586,9 @@
                 return moves[Math.floor(Math.random() * moves.length)];
             }
 
-            let bestMove = moves[0];
+            let bestMove = moves[0]; // ← главное исправление
             let bestScore = aiColor === 'white' ? -Infinity : Infinity;
-            const depth = difficulty === 'grandmaster' ? 3 : 2; // глубина 3 для гроссмейстера
+            const depth = difficulty === 'grandmaster' ? 3 : 2;
 
             for (let m of moves) {
                 const undo = makeVirtualMove(state.board, m);
@@ -713,7 +709,6 @@
                         }
                         renderPlayScreen();
                     } else {
-                        // Fallback: случайный ход
                         const randomMove = moves[Math.floor(Math.random() * moves.length)];
                         if (randomMove) {
                             commitMove(randomMove.fromR, randomMove.fromC, randomMove.toR, randomMove.toC, randomMove.castling);
@@ -723,24 +718,378 @@
             }, 300);
         }
 
-        function onlyKingsLeft() { /* без изменений */ }
+        function onlyKingsLeft() {
+            if (!state.board) return false;
+            let whiteKing = false, blackKing = false;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const piece = state.board[r][c];
+                    if (!piece) continue;
+                    if (piece.type === 'K') {
+                        if (piece.color === 'white') whiteKing = true;
+                        else blackKing = true;
+                    } else {
+                        return false;
+                    }
+                }
+            }
+            return whiteKing && blackKing;
+        }
 
-        // ========== Отрисовка экранов ==========
-        function renderRulesScreen() { /* как в предыдущей версии */ }
-        function renderMainMenu() { /* как в предыдущей версии */ }
-        function renderOptionsScreen() { /* как в предыдущей версии */ }
-        function renderSetupScreen(side) { /* как в предыдущей версии */ }
-        function launchScoutPhase() { /* как в предыдущей версии */ }
-        function renderScoutScreen() { /* как в предыдущей версии */ }
-        function renderPlayScreen() { /* как в предыдущей версии, но с вызовом triggerAIResponse в конце */ }
+        // ========== ОТРИСОВКА ЭКРАНОВ (полный код) ==========
+        function renderRulesScreen() {
+            app.innerHTML = `
+                <div class="title">♔ Victory Chess</div>
+                <div class="subtitle">Шахматы с нестандартной расстановкой</div>
+                <div class="rules-container">
+                    <h2>Правила игры</h2>
+                    <ul>
+                        <li>Каждый игрок собирает свою стартовую позицию из стандартного набора фигур: <span class="highlight">король, ферзь, две ладьи, два слона, два коня</span>.</li>
+                        <li><span class="highlight">Король</span> обязательно должен стоять между ладьями.</li>
+                        <li><span class="highlight">Слоны</span> — на клетках разного цвета.</li>
+                        <li><span class="highlight">Кони</span> — на клетках разного цвета.</li>
+                        <li>После сборки — <span class="highlight">фаза разведки 15 секунд</span>, чтобы изучить позицию соперника.</li>
+                        <li>Далее игра идёт по <span class="highlight">стандартным шахматным правилам</span> с поддержкой рокировки.</li>
+                        <li>Играйте вдвоём за одним экраном или против <span class="highlight">искусственного интеллекта</span> (3 уровня сложности).</li>
+                    </ul>
+                    <div class="btn-wrap">
+                        <button class="btn btn-start-rules" id="startBtn">Начать игру</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('startBtn').onclick = renderMainMenu;
+        }
 
-        function startGlobalMatchTimer() { /* как в предыдущей версии */ }
-        function resetEntireSystem() { /* как в предыдущей версии */ }
+        function renderMainMenu() {
+            app.innerHTML = `
+                <div class="title">♔ Victory Chess</div>
+                <div class="subtitle">Выберите режим игры</div>
+                <div class="menu-container">
+                    <button class="btn btn-menu" id="m-pve">🤖 Одиночная игра</button>
+                    <button class="btn btn-menu" id="m-pvp">👥 Игра на двоих</button>
+                </div>
+            `;
+            document.getElementById('m-pve').onclick = () => { gameMode = 'single'; renderOptionsScreen(); };
+            document.getElementById('m-pvp').onclick = () => { gameMode = 'multi'; state.phase = 'setup_white'; renderSetupScreen('white'); };
+        }
 
-        // В renderPlayScreen в конце должен быть вызов:
-        // if (gameMode === 'single' && !state.gameOver && state.turn === (playerColor === 'white' ? 'black' : 'white') && !isProcessingMove) {
-        //     triggerAIResponse();
-        // }
+        function renderOptionsScreen() {
+            app.innerHTML = `
+                <div class="title">♔ Victory Chess</div>
+                <div class="subtitle">Параметры матча против ИИ</div>
+                <div class="menu-container">
+                    <div style="color:#aaa; font-size: 15px;">Уровень сложности</div>
+                    <div class="options-group" id="diff-g">
+                        <button class="btn-opt ${difficulty==='novice'?'selected':''}" data-v="novice">Новичок</button>
+                        <button class="btn-opt ${difficulty==='intermediate'?'selected':''}" data-v="intermediate">Опытный</button>
+                        <button class="btn-opt ${difficulty==='grandmaster'?'selected':''}" data-v="grandmaster">Гроссмейстер</button>
+                    </div>
+                    <div style="color:#aaa; font-size: 15px; margin-top: 10px;">Ваша сторона</div>
+                    <div class="options-group" id="color-g">
+                        <button class="btn-opt ${playerColor==='white'?'selected':''}" data-v="white">⚪ Белые</button>
+                        <button class="btn-opt ${playerColor==='black'?'selected':''}" data-v="black">⚫ Чёрные</button>
+                    </div>
+                    <button class="btn btn-success" id="start-single" style="margin-top:20px; padding: 12px 40px; font-size:18px;" ${(!difficulty || !playerColor)?'disabled':''}>В кузницу дебютов</button>
+                    <button class="btn btn-back" id="opts-back" style="margin-top: 8px;">← Назад</button>
+                </div>
+            `;
+            document.querySelectorAll('#diff-g .btn-opt').forEach(b => b.onclick = function() { difficulty = this.dataset.v; renderOptionsScreen(); });
+            document.querySelectorAll('#color-g .btn-opt').forEach(b => b.onclick = function() { playerColor = this.dataset.v; renderOptionsScreen(); });
+            document.getElementById('opts-back').onclick = () => renderMainMenu();
+            document.getElementById('start-single').onclick = () => { state.phase = 'setup_' + playerColor; renderSetupScreen(playerColor); };
+        }
+
+        function renderSetupScreen(side) {
+            const isWhite = (side === 'white');
+            const setup = isWhite ? state.whiteSetup : state.blackSetup;
+            const validInfo = validateArrayRules(setup, isWhite);
+            const invalidFlags = getCellInvalidFlags(setup, isWhite);
+
+            app.innerHTML = `
+                <div class="title">♔ Victory Chess</div>
+                <div class="subtitle">${isWhite ? 'Белые' : 'Черные'} — соберите свою стартовую позицию</div>
+                <div class="setup-area">
+                    <div class="board-setup" id="s-board"></div>
+                    <div class="piece-palette" id="s-palette"></div>
+                    <div class="status-bar">${validInfo.valid ? '<span class="valid">✓ Позиция сбалансирована</span>' : `⚠ ${validInfo.reason}`}</div>
+                    <div class="flex-row">
+                        <button class="btn btn-danger" id="s-clear">Очистить</button>
+                        <button class="btn btn-random" id="s-rand">🎲 Случайная комбинация</button>
+                        <button class="btn btn-success" id="s-done" ${!validInfo.valid?'disabled':''}>Готово</button>
+                        <button class="btn btn-back" id="s-back">← Назад</button>
+                    </div>
+                </div>
+            `;
+
+            const sBoard = document.getElementById('s-board');
+            sBoard.innerHTML = '';
+            for (let i = 0; i < 8; i++) {
+                const cell = document.createElement('div');
+                cell.className = `setup-cell ${(i%2===0)?'light':'dark'} ${invalidFlags[i]?'invalid':''}`;
+                const piece = setup[i];
+                if (piece) {
+                    const colorClass = isWhite ? 'white' : 'black';
+                    cell.innerHTML = `<span class="piece ${colorClass}">${SYM[piece]}</span>`;
+                    cell.title = PIECE_NAMES[piece];
+                } else {
+                    cell.title = '';
+                }
+                cell.onclick = () => {
+                    if (state.selectedPiece) {
+                        if (setup.filter(p => p === state.selectedPiece).length < TOTAL_NEEDED[state.selectedPiece]) {
+                            setup[i] = state.selectedPiece;
+                            state.selectedPiece = null;
+                        }
+                    } else {
+                        setup[i] = null;
+                    }
+                    renderSetupScreen(side);
+                };
+                sBoard.appendChild(cell);
+            }
+
+            const sPalette = document.getElementById('s-palette');
+            sPalette.innerHTML = '';
+            const currentCounts = {};
+            setup.forEach(p => { if(p) currentCounts[p] = (currentCounts[p] || 0) + 1; });
+            Object.keys(TOTAL_NEEDED).forEach(p => {
+                const btn = document.createElement('button');
+                const colorClass = isWhite ? 'white-piece' : 'black-piece';
+                btn.className = `piece-btn ${colorClass} ${state.selectedPiece===p?'selected':''}`;
+                btn.innerText = SYM[p];
+                btn.title = PIECE_NAMES[p];
+                if ((currentCounts[p] || 0) >= TOTAL_NEEDED[p]) btn.disabled = true;
+                btn.onclick = () => { state.selectedPiece = (state.selectedPiece === p) ? null : p; renderSetupScreen(side); };
+                sPalette.appendChild(btn);
+            });
+
+            document.getElementById('s-clear').onclick = () => { setup.fill(null); state.selectedPiece = null; renderSetupScreen(side); };
+            document.getElementById('s-rand').onclick = () => {
+                const r = generateValidRandomSetup(isWhite);
+                for(let i=0;i<8;i++) setup[i]=r[i];
+                state.selectedPiece = null;
+                renderSetupScreen(side);
+            };
+            document.getElementById('s-done').onclick = () => {
+                if (gameMode === 'single') {
+                    const aiColor = playerColor === 'white' ? 'black' : 'white';
+                    if (aiColor === 'black') state.blackSetup = generateValidRandomSetup(false);
+                    else state.whiteSetup = generateValidRandomSetup(true);
+                    launchScoutPhase();
+                } else {
+                    if (side === 'white') { state.phase = 'setup_black'; renderSetupScreen('black'); }
+                    else { launchScoutPhase(); }
+                }
+            };
+            document.getElementById('s-back').onclick = () => {
+                if (gameMode === 'single') renderOptionsScreen();
+                else renderMainMenu();
+            };
+        }
+
+        function launchScoutPhase() {
+            state.phase = 'scout';
+            state.scoutTimer = 15;
+            initBoard();
+            renderScoutScreen();
+            if (scoutInterval) clearInterval(scoutInterval);
+            scoutInterval = setInterval(() => {
+                state.scoutTimer--;
+                if (state.scoutTimer <= 0) {
+                    clearInterval(scoutInterval);
+                    state.phase = 'play';
+                    renderPlayScreen();
+                    startGlobalMatchTimer();
+                } else {
+                    const clock = document.getElementById('s-clock');
+                    if (clock) clock.innerText = state.scoutTimer + 'с';
+                }
+            }, 1000);
+        }
+
+        function renderScoutScreen() {
+            app.innerHTML = `
+                <div class="title">🔍 Фаза разведки</div>
+                <div class="scout-timer" id="s-clock">15с</div>
+                <div style="color:#666; font-size:13px; text-align:center; margin-bottom:12px;">Изучите вражеское расположение досок! Настоящий "слепой старт"</div>
+                <div class="scout-container" id="scout-grids"></div>
+            `;
+            const grids = document.getElementById('scout-grids');
+            grids.innerHTML = '';
+
+            const boardWhite = buildBoard(state.whiteSetup, state.blackSetup);
+            const boardBlack = flipBoard(boardWhite);
+
+            const createMiniHtml = (board, label) => {
+                let div = document.createElement('div');
+                div.className = 'scout-board-wrapper';
+                div.innerHTML = `<div style="margin-bottom:4px; font-size:14px; color:#aaa;">${label}</div>`;
+                let b = document.createElement('div');
+                b.className = 'board';
+                for (let i = 0; i < 64; i++) {
+                    let r = Math.floor(i/8), c = i%8;
+                    let cell = document.createElement('div');
+                    cell.className = `cell ${((r+c)%2===0)?'light':'dark'}`;
+                    let piece = board[r][c];
+                    if (piece) cell.innerHTML = `<span class="piece ${piece.color}">${SYM[piece.type]}</span>`;
+                    b.appendChild(cell);
+                }
+                div.appendChild(b);
+                return div;
+            };
+
+            grids.appendChild(createMiniHtml(boardWhite, "Вид со стороны Белых"));
+            grids.appendChild(createMiniHtml(boardBlack, "Вид со стороны Чёрных"));
+        }
+
+        function renderPlayScreen() {
+            const flipped = (gameMode === 'single' && playerColor === 'black');
+            const displayBoard = flipped ? flipBoard(state.board) : state.board;
+
+            const turnLabel = state.turn === 'white' ? 'Белые' : 'Черные';
+            const showDrawBtn = !state.gameOver && onlyKingsLeft();
+
+            app.innerHTML = `
+                <div class="title">♔ Victory Chess</div>
+                <div class="game-layout">
+                    <div class="board-wrapper">
+                        <div class="board-status">
+                            <div class="turn-box">
+                                <span class="turn-bullet ${state.turn==='white'?'bullet-white':'bullet-black'}"></span>
+                                <span style="font-weight:600;">${state.gameOver ? 'Игра окончена' : `Ход: ${turnLabel}`}</span>
+                            </div>
+                            <span class="timer" id="game-clock">00:00</span>
+                            ${showDrawBtn ? `<button class="btn btn-draw" id="drawBtn">🤝 Объявить ничью</button>` : ''}
+                            <button class="btn ${state.gameOver ? 'btn-reset' : 'btn-danger'}" id="actionBtn">${state.gameOver ? 'Новая игра' : 'Сдаться'}</button>
+                        </div>
+                        <div class="board" id="main-board"></div>
+                    </div>
+                    <div class="side-panel">
+                        <div class="panel-title">📋 Протокол матча</div>
+                        <div class="move-log" id="g-log"></div>
+                    </div>
+                </div>
+            `;
+
+            const actionBtn = document.getElementById('actionBtn');
+            if (actionBtn) {
+                if (state.gameOver) {
+                    actionBtn.onclick = resetEntireSystem;
+                } else {
+                    actionBtn.onclick = () => {
+                        if (state.gameOver) return;
+                        state.gameOver = true;
+                        const loser = state.turn === 'white' ? 'Белые' : 'Черные';
+                        state.moveLog.push({ color: state.turn, text: `Сдался (${loser})` });
+                        renderPlayScreen();
+                    };
+                }
+            }
+
+            const drawBtn = document.getElementById('drawBtn');
+            if (drawBtn) {
+                drawBtn.addEventListener('click', function() {
+                    if (state.gameOver) return;
+                    state.gameOver = true;
+                    state.moveLog.push({ color: 'white', text: '🤝 Ничья по соглашению' });
+                    renderPlayScreen();
+                });
+            }
+
+            const logBox = document.getElementById('g-log');
+            logBox.innerHTML = '';
+            state.moveLog.forEach((m, i) => {
+                const entry = document.createElement('div');
+                entry.className = 'move-entry';
+                const colorLabel = m.color === 'white' ? 'Бел' : 'Чер';
+                entry.innerHTML = `<span class="move-num">${i+1}.</span><span class="move-text">[${colorLabel}] ${m.text}</span>`;
+                logBox.appendChild(entry);
+            });
+            logBox.scrollTop = logBox.scrollHeight;
+
+            const mBoard = document.getElementById('main-board');
+            mBoard.innerHTML = '';
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const cell = document.createElement('div');
+                    const isLight = (r + c) % 2 === 0;
+                    cell.className = `cell ${isLight ? 'light' : 'dark'}`;
+                    const actualRow = flipped ? 7 - r : r;
+                    const actualCol = flipped ? 7 - c : c;
+
+                    const pieceOnBoard = displayBoard[r][c];
+                    if (state.selected && state.selected.row === actualRow && state.selected.col === actualCol) {
+                        cell.classList.add('selected');
+                    }
+                    const availableMove = state.possibleMoves.find(m => m.row === actualRow && m.col === actualCol);
+                    if (availableMove) {
+                        cell.classList.add(availableMove.isCapture || availableMove.castling ? 'highlight-capture' : 'highlight');
+                    }
+                    if (pieceOnBoard) {
+                        const sym = SYM[pieceOnBoard.type];
+                        const colorClass = pieceOnBoard.color === 'white' ? 'white' : 'black';
+                        cell.innerHTML = `<span class="piece ${colorClass}">${sym}</span>`;
+                    }
+                    cell.onclick = () => {
+                        if (state.gameOver) return;
+                        if (isProcessingMove) return;
+                        if (gameMode === 'single' && state.turn !== playerColor) return;
+
+                        const actualRowClick = flipped ? 7 - r : r;
+                        const actualColClick = flipped ? 7 - c : c;
+
+                        const available = state.possibleMoves.find(m => m.row === actualRowClick && m.col === actualColClick);
+                        if (available && state.selected) {
+                            commitMove(state.selected.row, state.selected.col, actualRowClick, actualColClick, available.castling);
+                        } else {
+                            const clickedPiece = state.board[actualRowClick][actualColClick];
+                            if (clickedPiece && clickedPiece.color === state.turn) {
+                                state.selected = { row: actualRowClick, col: actualColClick };
+                                state.possibleMoves = getLegalMoves(state.board, actualRowClick, actualColClick);
+                                renderPlayScreen();
+                            } else {
+                                state.selected = null;
+                                state.possibleMoves = [];
+                                renderPlayScreen();
+                            }
+                        }
+                    };
+                    mBoard.appendChild(cell);
+                }
+            }
+
+            if (gameMode === 'single' && !state.gameOver && state.turn === (playerColor === 'white' ? 'black' : 'white') && !isProcessingMove) {
+                triggerAIResponse();
+            }
+        }
+
+        function startGlobalMatchTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            state.elapsedSeconds = 0;
+            timerInterval = setInterval(() => {
+                state.elapsedSeconds++;
+                const clock = document.getElementById('game-clock');
+                if (clock) {
+                    const m = String(Math.floor(state.elapsedSeconds/60)).padStart(2,'0');
+                    const s = String(state.elapsedSeconds%60).padStart(2,'0');
+                    clock.innerText = `${m}:${s}`;
+                }
+            }, 1000);
+        }
+
+        function resetEntireSystem() {
+            clearInterval(timerInterval);
+            clearInterval(scoutInterval);
+            state.whiteSetup.fill(null);
+            state.blackSetup.fill(null);
+            state.phase = 'menu';
+            state.selectedPiece = null;
+            state.gameOver = false;
+            isProcessingMove = false;
+            difficulty = null;
+            playerColor = null;
+            renderMainMenu();
+        }
 
         renderRulesScreen();
     })();
