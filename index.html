@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -48,7 +49,7 @@
         .btn-draw:hover { background: #aa8d5b; }
         .btn-reset { background: #2d7d46; border-color: #3a9d5a; color: #fff; }
         .btn-reset:hover { background: #3a9d5a; }
-        .btn-start-rules { background: var(--tg-theme-button-color, #8a2be2); border-color: var(--tg-theme-button-color, #a04cf0); color: var(--tg-theme-button-text-color, #fff); font-size: 20px; padding: 14px 48px; }
+        .btn-start-rules { background: var(--tg-theme-button-color, #8a2be2); border-color: var(--tg-theme-button-color, #a04cf0); color: var(--tg-theme-button-text-color, #fff); font-size: 20px; padding: 14px 48px; border-radius: 8px; }
         .btn-start-rules:hover { filter: brightness(1.1); }
         .title { text-align: center; font-size: 28px; font-weight: 300; letter-spacing: 3px; margin-bottom: 6px; color: var(--tg-theme-text-color, #fff); }
         .title span { color: var(--tg-theme-button-color, #8a2be2); font-weight: 700; }
@@ -56,6 +57,7 @@
         .rules-container { max-width: 720px; background: var(--tg-theme-secondary-bg-color, #1a1a1e); border: 1px solid var(--tg-theme-hint-color, #2d2d35); border-radius: 16px; padding: 40px 48px; margin-top: 20px; text-align: left; line-height: 1.6; color: var(--tg-theme-text-color, #ccc); }
         .rules-container h2 { text-align: center; color: var(--tg-theme-button-color, #8a2be2); font-weight: 300; letter-spacing: 2px; margin-bottom: 20px; }
         .rules-container ul { list-style: none; padding-left: 0; }
+        .rules-container ul li { margin-bottom: 10px; }
         .rules-container ul li::before { content: "• "; color: var(--tg-theme-button-color, #8a2be2); font-weight: bold; }
         .rules-container .highlight { color: var(--tg-theme-hint-color, #ffaa55); }
         .rules-container .btn-wrap { text-align: center; margin-top: 30px; }
@@ -171,7 +173,7 @@
         const BASE_PIECES = ['K','Q','R','R','B','B','N','N'];
         const PIECE_VALUES = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
 
-        // PST таблицы (без изменений)
+        // PST таблицы
         const PST_PAWN = [
             [0,0,0,0,0,0,0,0],
             [50,50,50,50,50,50,50,50],
@@ -312,7 +314,7 @@
             return flags;
         }
 
-        // === Шахматный движок (исправлен) ===
+        // === Шахматный движок ===
         function buildBoard(wSetup, bSetup) {
             const board = Array(8).fill().map(() => Array(8).fill(null));
             for (let c = 0; c < 8; c++) {
@@ -444,18 +446,20 @@
                     }
                     // Рокировка (Chess960)
                     if (!state.kingMoved[color]) {
-                        const rowKing = color === 'white' ? 0 : 7;
-                        if (row === rowKing && col === state.initialRookCols[color][0]) {
-                            // длинная рокировка
+                        const rRow = color === 'white' ? 0 : 7;
+                        const rookCols = state.initialRookCols[color];
+                        if (rookCols && rookCols.length === 2) {
                             if (!state.rooksMoved[color][0]) {
-                                // Проверяем, что путь свободен и король не под шахом (будет проверено в getLegalMoves)
-                                moves.push({ row: rowKing, col: 2, castling: 'long', isCapture: false });
+                                const rCol = rookCols[0];
+                                if (isCastlingPathClear(boardState, rRow, col, rCol, 2, 3)) {
+                                    moves.push({ row: rRow, col: rCol, castling: 'long', isCapture: false });
+                                }
                             }
-                        }
-                        if (row === rowKing && col === state.initialRookCols[color][1]) {
-                            // короткая рокировка
                             if (!state.rooksMoved[color][1]) {
-                                moves.push({ row: rowKing, col: 6, castling: 'short', isCapture: false });
+                                const rCol = rookCols[1];
+                                if (isCastlingPathClear(boardState, rRow, col, rCol, 6, 5)) {
+                                    moves.push({ row: rRow, col: rCol, castling: 'short', isCapture: false });
+                                }
                             }
                         }
                     }
@@ -465,21 +469,29 @@
             return moves;
         }
 
+        function isCastlingPathClear(board, row, kCol, rCol, targetKCol, targetRCol) {
+            const minCol = Math.min(kCol, rCol, targetKCol, targetRCol);
+            const maxCol = Math.max(kCol, rCol, targetKCol, targetRCol);
+            for (let c = minCol; c <= maxCol; c++) {
+                if (c !== kCol && c !== rCol) {
+                    if (board[row][c] !== null) return false;
+                }
+            }
+            return true;
+        }
+
         function getLegalMoves(boardState, row, col) {
             const piece = boardState[row][col];
             if (!piece) return [];
             const pseudo = getPseudoLegalMoves(boardState, row, col);
             return pseudo.filter(m => {
-                // Сохраняем состояние для отката
-                const captured = boardState[m.row][m.col];
+                const savedDest = boardState[m.row][m.col];
                 boardState[m.row][m.col] = piece;
                 boardState[row][col] = null;
-                // Проверяем, не под шахом ли свой король
                 const king = findKingPosition(boardState, piece.color);
                 const isUnderCheck = king ? isSquareAttacked(boardState, king.row, king.col, piece.color === 'white' ? 'black' : 'white') : true;
-                // Откат
                 boardState[row][col] = piece;
-                boardState[m.row][m.col] = captured;
+                boardState[m.row][m.col] = savedDest;
                 return !isUnderCheck;
             });
         }
@@ -491,7 +503,6 @@
                     if (boardState[r][c]?.color === color) {
                         const ms = getLegalMoves(boardState, r, c);
                         for (let m of ms) {
-                            // Для рокировки добавляем флаг
                             moves.push({
                                 fromR: r,
                                 fromC: c,
@@ -509,9 +520,7 @@
         function findKingPosition(board, color) {
             for (let r = 0; r < 8; r++) {
                 for (let c = 0; c < 8; c++) {
-                    if (board[r][c]?.type === 'K' && board[r][c]?.color === color) {
-                        return { row: r, col: c };
-                    }
+                    if (board[r][c]?.type === 'K' && board[r][c]?.color === color) return { row: r, col: c };
                 }
             }
             return null;
@@ -522,9 +531,7 @@
                 for (let c = 0; c < 8; c++) {
                     if (board[r][c]?.color === byColor) {
                         const pMoves = getPseudoLegalMoves(board, r, c);
-                        for (let m of pMoves) {
-                            if (m.row === row && m.col === col) return true;
-                        }
+                        if (pMoves.some(m => m.row === row && m.col === col)) return true;
                     }
                 }
             }
@@ -567,53 +574,32 @@
             if (target) {
                 score = PIECE_VALUES[target.type] - PIECE_VALUES[piece.type];
             }
-            if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) score += 50;
+            if (piece && piece.type === 'P' && (m.toR === 0 || m.toR === 7)) score += 50;
             if (m.castling) score += 30;
             return score;
         }
 
-        // === ИИ (оптимизированный makeVirtualMove) ===
-        function makeVirtualMove(board, move, undo) {
+        // === ИСПРАВЛЕННАЯ ФУНКЦИЯ makeVirtualMove (имя аргумента m) ===
+        function makeVirtualMove(board, m, undo) {
             if (undo) {
-                // Откат хода: восстанавливаем фигуры по сохранённым данным
-                // Для этого нужно сохранять данные при выполнении хода.
-                // Мы сохраним их в самих полях доски? Нет, лучше передавать объект с данными.
-                // Для простоты будем хранить в объекте move поля savedFrom и savedTo.
-                // Но чтобы не плодить объекты, будем использовать поля самой доски для хранения временных данных?
-                // Лучше создать структуру, но мы можем хранить в самой доске: board._saved = { ... }
-                // Но проще всего при выполнении хода сохранить информацию в локальные переменные,
-                // а при откате использовать их. Поскольку у нас нет объекта отката, мы будем передавать данные
-                // через замыкание? Но мы хотим избежать замыканий.
-                // Вместо этого мы можем в alphaBetaSearch хранить массив undoData и передавать его.
-                // Но это усложняет. Давайте просто использовать сохранённые данные внутри функции makeVirtualMove,
-                // но без замыканий – мы будем модифицировать доску и возвращать объект с данными для отката.
-                // Это создаст объект, но это всё равно лучше, чем создавать функции.
-                // Но чтобы не создавать объекты на каждом шагу, можно использовать массив и передавать индекс.
-                // Я предлагаю использовать подход: makeVirtualMove(board, move) возвращает объект undoData,
-                // а затем мы вызываем makeVirtualMoveUndo(board, undoData) для отката.
-                // Это тоже создаёт объект, но не создаёт функцию.
-                // В рамках данного ответа я реализую через объект undoData, чтобы код был читаемым и производительным.
-                // На практике это нормально.
-                const undoData = move._undoData;
+                const undoData = m?._undoData;
                 if (!undoData) return;
-                // Восстанавливаем
-                const { fromR, fromC, toR, toC, captured, wasCastling, king, rook } = undoData;
-                board[fromR][fromC] = undoData.piece;
-                board[toR][toC] = captured;
-                if (wasCastling) {
-                    // Восстанавливаем ладью и короля на исходные позиции
-                    // При кастлинге мы перемещали короля и ладью, поэтому нужно вернуть их обратно
-                    // Мы сохранили их позиции в undoData
-                    board[undoData.kingRow][undoData.kingCol] = undoData.king;
-                    board[undoData.rookRow][undoData.rookCol] = undoData.rook;
+                if (undoData.wasCastling) {
+                    const row = undoData.fromR;
+                    board[row][undoData.targetKCol] = null;
+                    board[row][undoData.targetRCol] = null;
+                    board[row][undoData.fromC] = undoData.king;
+                    board[row][undoData.toC] = undoData.rook;
+                } else {
+                    board[undoData.fromR][undoData.fromC] = undoData.piece;
+                    board[undoData.toR][undoData.toC] = undoData.captured;
                 }
                 return;
             }
 
-            // Выполнение хода
             const piece = board[m.fromR][m.fromC];
+            if (!piece) return;
             const captured = board[m.toR][m.toC];
-            // Сохраняем данные для отката
             const undoData = {
                 fromR: m.fromR,
                 fromC: m.fromC,
@@ -625,51 +611,38 @@
             };
 
             if (m.castling) {
-                // Рокировка
                 const row = m.fromR;
                 const oldKingCol = m.fromC;
-                const oldRookCol = m.toC; // toC в псевдо-ходе для рокировки содержит колонку ладьи
+                const oldRookCol = m.toC;
                 const targetKCol = m.castling === 'long' ? 2 : 6;
                 const targetRCol = m.castling === 'long' ? 3 : 5;
-
-                // Находим ладью (она может быть не на oldRookCol, если мы её уже переместили? но она там)
                 const rook = board[row][oldRookCol];
-                // Сохраняем короля и ладью для отката
+                if (!rook) return;
                 undoData.king = piece;
                 undoData.rook = rook;
-                undoData.kingRow = row;
-                undoData.kingCol = oldKingCol;
-                undoData.rookRow = row;
-                undoData.rookCol = oldRookCol;
+                undoData.targetKCol = targetKCol;
+                undoData.targetRCol = targetRCol;
                 undoData.wasCastling = true;
-
-                // Очищаем исходные клетки
                 board[row][oldKingCol] = null;
                 board[row][oldRookCol] = null;
-                // Ставим короля и ладью
                 board[row][targetKCol] = piece;
                 board[row][targetRCol] = rook;
-                // Сохраняем в move для отката
-                move._undoData = undoData;
+                m._undoData = undoData;
                 return;
             }
 
-            // Обычный ход
             board[m.toR][m.toC] = piece;
             board[m.fromR][m.fromC] = null;
-            // Превращение пешки
             if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) {
                 board[m.toR][m.toC] = { type: 'Q', color: piece.color };
-                undoData.promoted = true;
             }
-            move._undoData = undoData;
+            m._undoData = undoData;
         }
 
         function undoVirtualMove(board, move) {
             makeVirtualMove(board, move, true);
         }
 
-        // Теперь используем в alphaBetaSearch
         function alphaBetaSearch(board, depth, alpha, beta, isMaximizing) {
             if (depth === 0) return evaluatePosition(board);
             const turnColor = isMaximizing ? 'white' : 'black';
@@ -677,7 +650,7 @@
             if (moves.length === 0) {
                 const king = findKingPosition(board, turnColor);
                 if (king && isSquareAttacked(board, king.row, king.col, isMaximizing ? 'black' : 'white')) {
-                    return isMaximizing ? -Infinity + (5 - depth) : Infinity - (5 - depth);
+                    return isMaximizing ? -25000 + (5 - depth) : 25000 - (5 - depth);
                 }
                 return 0;
             }
@@ -686,9 +659,10 @@
             if (isMaximizing) {
                 let maxEval = -Infinity;
                 for (let m of ordered) {
-                    makeVirtualMove(board, m, false);
+                    const undoData = performVirtualMove(board, m);
+                    if (!undoData) continue;
                     const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, false);
-                    undoVirtualMove(board, m);
+                    revertVirtualMove(board, undoData);
                     maxEval = Math.max(maxEval, evalVal);
                     alpha = Math.max(alpha, evalVal);
                     if (beta <= alpha) break;
@@ -697,14 +671,71 @@
             } else {
                 let minEval = Infinity;
                 for (let m of ordered) {
-                    makeVirtualMove(board, m, false);
+                    const undoData = performVirtualMove(board, m);
+                    if (!undoData) continue;
                     const evalVal = alphaBetaSearch(board, depth - 1, alpha, beta, true);
-                    undoVirtualMove(board, m);
+                    revertVirtualMove(board, undoData);
                     minEval = Math.min(minEval, evalVal);
                     beta = Math.min(beta, evalVal);
                     if (beta <= alpha) break;
                 }
                 return minEval;
+            }
+        }
+
+        function performVirtualMove(board, m) {
+            const piece = board[m.fromR][m.fromC];
+            if (!piece) return null;
+
+            const captured = board[m.toR][m.toC];
+            const undoData = {
+                fromR: m.fromR,
+                fromC: m.fromC,
+                toR: m.toR,
+                toC: m.toC,
+                piece: piece,
+                captured: captured,
+                wasCastling: false
+            };
+
+            if (m.castling) {
+                const row = m.fromR;
+                const oldKingCol = m.fromC;
+                const oldRookCol = m.toC;
+                const targetKCol = m.castling === 'long' ? 2 : 6;
+                const targetRCol = m.castling === 'long' ? 3 : 5;
+                const rook = board[row][oldRookCol];
+                if (!rook) return null;
+                undoData.king = piece;
+                undoData.rook = rook;
+                undoData.targetKCol = targetKCol;
+                undoData.targetRCol = targetRCol;
+                undoData.wasCastling = true;
+                board[row][oldKingCol] = null;
+                board[row][oldRookCol] = null;
+                board[row][targetKCol] = piece;
+                board[row][targetRCol] = rook;
+            } else {
+                board[m.toR][m.toC] = piece;
+                board[m.fromR][m.fromC] = null;
+                if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) {
+                    board[m.toR][m.toC] = { type: 'Q', color: piece.color };
+                }
+            }
+            return undoData;
+        }
+
+        function revertVirtualMove(board, undoData) {
+            if (!undoData) return;
+            if (undoData.wasCastling) {
+                const row = undoData.fromR;
+                board[row][undoData.targetKCol] = null;
+                board[row][undoData.targetRCol] = null;
+                board[row][undoData.fromC] = undoData.king;
+                board[row][undoData.toC] = undoData.rook;
+            } else {
+                board[undoData.fromR][undoData.fromC] = undoData.piece;
+                board[undoData.toR][undoData.toC] = undoData.captured;
             }
         }
 
@@ -717,14 +748,16 @@
                 return moves[Math.floor(Math.random() * moves.length)];
             }
 
-            let bestMove = moves[0];
+            let bestMove = null;
             let bestScore = aiColor === 'white' ? -Infinity : Infinity;
             const depth = difficulty === 'grandmaster' ? 3 : 2;
+            const ordered = orderMoves(state.board, moves);
 
-            for (let m of moves) {
-                makeVirtualMove(state.board, m, false);
-                const score = alphaBetaSearch(state.board, depth, -Infinity, Infinity, aiColor === 'white');
-                undoVirtualMove(state.board, m);
+            for (let m of ordered) {
+                const undoData = performVirtualMove(state.board, m);
+                if (!undoData) continue;
+                const score = alphaBetaSearch(state.board, depth - 1, -Infinity, Infinity, aiColor === 'white');
+                revertVirtualMove(state.board, undoData);
                 if (aiColor === 'white' && score > bestScore) {
                     bestScore = score;
                     bestMove = m;
@@ -733,10 +766,10 @@
                     bestMove = m;
                 }
             }
-            return bestMove;
+            return bestMove || moves[0];
         }
 
-        // === Исполнение хода (с исправленной рокировкой) ===
+        // === Исполнение хода ===
         function commitMove(fromR, fromC, toR, toC, castling) {
             if (isProcessingMove) return;
             isProcessingMove = true;
@@ -747,36 +780,24 @@
             let notation = '';
 
             if (castling) {
-                // === Правильная рокировка Chess960 ===
                 const row = fromR;
                 const oldKingCol = fromC;
-                // В псевдо-ходе toC содержит колонку ладьи (поскольку мы генерируем ход короля на клетку ладьи)
                 const oldRookCol = toC;
                 const targetKCol = castling === 'long' ? 2 : 6;
                 const targetRCol = castling === 'long' ? 3 : 5;
-
-                // Находим ладью
                 const rook = state.board[row][oldRookCol];
-                if (!rook || rook.type !== 'R' || rook.color !== piece.color) {
-                    // Ошибка, откат
-                    isProcessingMove = false;
-                    return;
-                }
+                if (!rook) { isProcessingMove = false; return; }
 
-                // Очищаем исходные клетки короля и ладьи
                 state.board[row][oldKingCol] = null;
                 state.board[row][oldRookCol] = null;
-                // Устанавливаем короля и ладью на целевые позиции
                 state.board[row][targetKCol] = piece;
                 state.board[row][targetRCol] = rook;
 
                 notation = castling === 'long' ? '0-0-0' : '0-0';
                 state.kingMoved[piece.color] = true;
-                // Отмечаем, что ладья сдвинулась
                 const rookIdx = state.initialRookCols[piece.color].indexOf(oldRookCol);
                 if (rookIdx !== -1) state.rooksMoved[piece.color][rookIdx] = true;
             } else {
-                // Обычный ход
                 state.board[toR][toC] = piece;
                 state.board[fromR][fromC] = null;
                 if (piece.type === 'K') state.kingMoved[piece.color] = true;
@@ -805,7 +826,6 @@
             const nextColor = piece.color === 'white' ? 'black' : 'white';
             state.turn = nextColor;
 
-            // Проверка окончания партии
             const oppKing = findKingPosition(state.board, nextColor);
             if (oppKing) {
                 const inCheck = isSquareAttacked(state.board, oppKing.row, oppKing.col, piece.color);
@@ -839,23 +859,9 @@
                 if (aiMove) {
                     commitMove(aiMove.fromR, aiMove.fromC, aiMove.toR, aiMove.toC, aiMove.castling);
                 } else {
-                    const moves = getAllLegalMoves(state.board, aiColor);
-                    if (moves.length === 0) {
-                        const king = findKingPosition(state.board, aiColor);
-                        if (king && isSquareAttacked(state.board, king.row, king.col, playerColor)) {
-                            state.gameOver = true;
-                            alert(`Мат! Победили ${playerColor === 'white' ? 'Белые' : 'Черные'}`);
-                        } else {
-                            state.gameOver = true;
-                            alert('Пат! Ничья.');
-                        }
-                        renderPlayScreen();
-                    } else {
-                        const randomMove = moves[Math.floor(Math.random() * moves.length)];
-                        if (randomMove) {
-                            commitMove(randomMove.fromR, randomMove.fromC, randomMove.toR, randomMove.toC, randomMove.castling);
-                        }
-                    }
+                    state.gameOver = true;
+                    alert('Матч завершен.');
+                    renderPlayScreen();
                 }
             }, 300);
         }
@@ -989,9 +995,6 @@
                 if (piece) {
                     const colorClass = isWhite ? 'white' : 'black';
                     cell.innerHTML = `<span class="piece ${colorClass}">${SYM[piece]}</span>`;
-                    cell.title = PIECE_NAMES[piece];
-                } else {
-                    cell.title = '';
                 }
                 cell.onclick = () => {
                     if (state.selectedPiece) {
@@ -1016,7 +1019,6 @@
                 const colorClass = isWhite ? 'white-piece' : 'black-piece';
                 btn.className = `piece-btn ${colorClass} ${state.selectedPiece===p?'selected':''}`;
                 btn.innerText = SYM[p];
-                btn.title = PIECE_NAMES[p];
                 if ((currentCounts[p] || 0) >= TOTAL_NEEDED[p]) btn.disabled = true;
                 btn.onclick = () => { state.selectedPiece = (state.selectedPiece === p) ? null : p; renderSetupScreen(side); };
                 sPalette.appendChild(btn);
@@ -1079,7 +1081,7 @@
             const turnLabel = state.turn === 'white' ? 'Белые' : 'Черные';
             const showDrawBtn = !state.gameOver && onlyKingsLeft();
 
-            let html = `
+            app.innerHTML = `
                 <div class="title">♔ Victory Chess</div>
                 <div class="game-layout">
                     <div class="board-wrapper">
@@ -1106,8 +1108,6 @@
                     </div>
                 </div>
             `;
-
-            app.innerHTML = html;
 
             const actionBtn = document.getElementById('actionBtn');
             if (actionBtn) {
@@ -1242,3 +1242,4 @@
 </script>
 </body>
 </html>
+```
