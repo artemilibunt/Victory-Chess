@@ -876,7 +876,7 @@
             document.getElementById('tg-share-btn').onclick = () => {
                 const tg = window.Telegram?.WebApp;
                 if (tg) {
-                    const botName = 'YourBot'; // замените на имя вашего бота
+                    const botName = 'victorychessbot'; // замените на имя вашего бота
                     tg.openTelegramLink(`https://t.me/${botName}?start=room_${networkGameId}`);
                 } else {
                     alert(`Код скопирован: ${networkGameId}`);
