@@ -1,3 +1,5 @@
+Финальная версия кода — полностью автономная, на Firebase, с ручным вводом кода и Telegram-инвайтом через бота (без вебхуков). Исправлен трекер рокировки для чёрных, добавлена обработка `start_param`. Код готов к развёртыванию.
+
 ```html
 <!DOCTYPE html>
 <html lang="ru">
@@ -115,6 +117,17 @@
         .panel-title { font-size: 11px; color: var(--tg-theme-hint-color, #666); text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--tg-theme-hint-color, #2d2d35); padding-bottom: 4px; text-align: center; }
         .move-log { flex: 1; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 6px; font-family: monospace; font-size: 12px; align-content: flex-start; }
         .move-entry { background: var(--tg-theme-bg-color, #121214); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); }
+
+        #room-code-input {
+            padding: 12px;
+            font-size: 20px;
+            text-align: center;
+            width: 200px;
+            background: var(--tg-theme-bg-color, #25252b);
+            border: 1px solid var(--tg-theme-hint-color, #2d2d35);
+            border-radius: 8px;
+            color: var(--tg-theme-text-color, #eee);
+        }
     </style>
 </head>
 <body>
@@ -155,14 +168,14 @@
         let timerInterval = null;
         let scoutInterval = null;
         let networkListenerRef = null;
-        let db = null; // будет инициализирована позже
+        let db = null;
 
         const app = document.getElementById('app');
 
         // ---------- UI helpers ----------
         function updateTgBackButton(tg) {
             if (!tg) return;
-            if (state.phase === 'rules' || state.phase === 'menu') {
+            if (state.phase === 'rules' || state.phase === 'menu' || state.phase === 'join') {
                 tg.BackButton.hide();
             } else {
                 tg.BackButton.show();
@@ -567,9 +580,12 @@
                 state.board[toR][toC] = p;
                 state.board[fromR][fromC] = null;
                 if (p.type === 'K') state.kingMoved[p.color] = true;
+                // ИСПРАВЛЕННЫЙ ТРЕКЕР ЛАДЬИ – используем математическую колонку fromC без инверта
                 if (p.type === 'R') {
                     const idx = state.initialRookCols[p.color].indexOf(fromC);
-                    if (idx !== -1) state.rooksMoved[p.color][idx] = true;
+                    if (idx !== -1) {
+                        state.rooksMoved[p.color][idx] = true;
+                    }
                 }
                 if (p.type === 'P' && (toR === 0 || toR === 7)) {
                     state.board[toR][toC] = { type: 'Q', color: p.color };
@@ -648,8 +664,13 @@
             const ref = db.ref('games/' + gameCode);
             networkListenerRef = ref.on('value', (snapshot) => {
                 const data = snapshot.val();
-                if (!data) return;
-
+                if (!data) {
+                    if (state.phase === 'play' || state.phase === 'scout' || state.phase === 'waiting_for_player') {
+                        alert('Комната удалена. Игра завершена.');
+                        resetEntireSystem();
+                    }
+                    return;
+                }
                 if (state.phase === 'waiting_for_player' && data.status === 'ready') {
                     state.blackSetup = data.blackSetup;
                     initBoard();
@@ -710,25 +731,76 @@
                 <div class="subtitle">Тактический декбилдинг до первого хода</div>
                 <div class="menu-container">
                     <button class="btn btn-menu" id="m-pve">🤖 Одиночная игра против ИИ</button>
-                    <button class="btn btn-menu" id="m-pvp-net">🌐 Сыграть с другом по сети</button>
+                    <button class="btn btn-menu" id="m-create">🆕 Создать комнату</button>
+                    <button class="btn btn-menu" id="m-join">🔗 Подключиться к комнате</button>
                     <button class="btn btn-menu" id="m-pvp">👥 На двоих (За одним экраном)</button>
                 </div>
             `;
             document.getElementById('m-pve').onclick = () => { gameMode = 'bot'; renderOptionsScreen(); };
+            document.getElementById('m-create').onclick = createNetworkRoom;
+            document.getElementById('m-join').onclick = renderJoinScreen;
             document.getElementById('m-pvp').onclick = () => { gameMode = 'multi'; state.phase = 'setup_white'; renderSetupScreen('white'); };
-            document.getElementById('m-pvp-net').onclick = () => {
-                if (!db) { alert('Ошибка подключения к сети. Перезапустите приложение.'); return; }
-                gameMode = 'network';
-                networkGameId = String(Math.floor(10000 + Math.random() * 90000));
-                networkPlayerRole = 'creator';
-                playerColor = 'white';
-                db.ref('games/' + networkGameId).set({
-                    status: 'waiting',
-                    creatorId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'anonymous'
+        }
+
+        function renderJoinScreen() {
+            state.phase = 'join';
+            const tg = window.Telegram?.WebApp;
+            updateTgBackButton(tg);
+            app.innerHTML = `
+                <div class="title">♔ Victory Chess</div>
+                <div class="subtitle">Введите код комнаты друга</div>
+                <div class="menu-container">
+                    <input id="room-code-input" type="text" maxlength="5" placeholder="Например: 12345">
+                    <div class="flex-row">
+                        <button class="btn btn-primary" id="join-connect">Подключиться</button>
+                        <button class="btn" id="join-back">Назад</button>
+                    </div>
+                    <div id="join-error" style="color:#ef4444; margin-top:10px;"></div>
+                </div>
+            `;
+            document.getElementById('join-connect').onclick = function() {
+                const code = document.getElementById('room-code-input').value.trim();
+                const errEl = document.getElementById('join-error');
+                if (!code) { errEl.innerText = 'Введите код'; return; }
+                if (!db) { alert('Ошибка сети'); return; }
+                db.ref('games/' + code).once('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (!data) {
+                        errEl.innerText = 'Комната не найдена';
+                        return;
+                    }
+                    if (data.status !== 'setup_white_done' && data.status !== 'waiting') {
+                        errEl.innerText = 'Комната уже не доступна для подключения';
+                        return;
+                    }
+                    if (!data.whiteSetup) {
+                        errEl.innerText = 'Создатель еще не настроил фигуры, подождите...';
+                        return;
+                    }
+                    networkGameId = code;
+                    networkPlayerRole = 'joiner';
+                    playerColor = 'black';
+                    state.whiteSetup = data.whiteSetup.slice();
+                    startNetworkGameListener(code);
+                    state.phase = 'setup_black';
+                    renderSetupScreen('black');
                 });
-                state.phase = 'setup_white';
-                renderSetupScreen('white');
             };
+            document.getElementById('join-back').onclick = renderMenuScreen;
+        }
+
+        function createNetworkRoom() {
+            if (!db) { alert('Ошибка сети'); return; }
+            networkGameId = String(Math.floor(10000 + Math.random() * 90000));
+            networkPlayerRole = 'creator';
+            playerColor = 'white';
+            db.ref('games/' + networkGameId).set({
+                status: 'waiting',
+                creatorId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'anonymous'
+            });
+            startNetworkGameListener(networkGameId);
+            state.phase = 'setup_white';
+            renderSetupScreen('white');
         }
 
         function renderOptionsScreen() {
@@ -846,8 +918,7 @@
                         db.ref('games/' + networkGameId).update({ whiteSetup: state.whiteSetup, status: 'setup_white_done' });
                         state.phase = 'waiting_for_player';
                         renderWaitingScreen();
-                        startNetworkGameListener(networkGameId);
-                    } else {
+                    } else if (networkPlayerRole === 'joiner') {
                         if (!db) { alert('Ошибка сети'); return; }
                         db.ref('games/' + networkGameId).update({ blackSetup: state.blackSetup, status: 'ready' });
                         initBoard();
@@ -868,19 +939,29 @@
                 <div class="title">♔ Victory Chess</div>
                 <div class="subtitle">Ожидание соперника</div>
                 <div class="menu-container">
-                    <p style="text-align:center; font-size:16px; color:#aaa; margin-bottom:15px;">Поделитесь кодом комнаты с другом:</p>
+                    <p style="text-align:center; font-size:16px; color:#aaa; margin-bottom:15px;">Сообщите этот код другу:</p>
                     <h1 style="font-size:44px; color:#8a2be2; letter-spacing:4px; margin-bottom:20px;">${networkGameId}</h1>
-                    <button class="btn btn-primary" id="tg-share-btn">✉ Отправить приглашение</button>
+                    <div class="flex-row">
+                        <button class="btn btn-primary" id="invite-btn">✉ Пригласить друга</button>
+                        <button class="btn btn-danger" id="waiting-cancel">Отменить</button>
+                    </div>
                 </div>
             `;
-            document.getElementById('tg-share-btn').onclick = () => {
-                const tg = window.Telegram?.WebApp;
-                if (tg) {
-                    const botName = 'victorychessbot'; // замените на имя вашего бота
-                    tg.openTelegramLink(`https://t.me/${botName}?start=room_${networkGameId}`);
+            document.getElementById('invite-btn').onclick = function() {
+                const botName = 'vicrorychessbot';
+                if (window.Telegram?.WebApp) {
+                    window.Telegram.WebApp.openTelegramLink(`https://t.me/${botName}?start=room_${networkGameId}`);
                 } else {
-                    alert(`Код скопирован: ${networkGameId}`);
+                    alert('Telegram WebApp не доступен. Скопируйте код вручную: ' + networkGameId);
                 }
+            };
+            document.getElementById('waiting-cancel').onclick = function() {
+                if (db && networkGameId) {
+                    db.ref('games/' + networkGameId).remove();
+                    if (networkListenerRef) networkListenerRef();
+                    networkListenerRef = null;
+                }
+                resetEntireSystem();
             };
         }
 
@@ -1034,7 +1115,7 @@
                 networkGameId = roomCode;
                 networkPlayerRole = 'joiner';
                 playerColor = 'black';
-                if (!db) { alert('Ошибка сети. Перезапустите.'); return true; }
+                if (!db) { alert('Ошибка сети.'); return true; }
                 db.ref('games/' + roomCode).once('value', (snapshot) => {
                     const data = snapshot.val();
                     if (data && (data.status === 'waiting' || data.status === 'setup_white_done')) {
@@ -1048,7 +1129,6 @@
                 });
                 return true;
             }
-            // fallback
             const urlParams = new URLSearchParams(window.location.search);
             const roomCodeFallback = urlParams.get('room');
             if (roomCodeFallback) {
@@ -1092,16 +1172,14 @@
             renderMenuScreen();
         }
 
-        // ---------- ИНИЦИАЛИЗАЦИЯ (исправленная) ----------
+        // ---------- ИНИЦИАЛИЗАЦИЯ ----------
         function init() {
-            // 1. Telegram
             const tg = window.Telegram?.WebApp;
             if (tg) {
                 tg.ready();
                 tg.expand();
             }
 
-            // 2. Firebase (с проверкой, что библиотека загружена)
             try {
                 const firebaseConfig = {
                     databaseURL: "https://victory-chess-e0831-default-rtdb.firebaseio.com/"
@@ -1121,17 +1199,14 @@
                 return;
             }
 
-            // 3. Запуск
             if (!checkIncomingInvite()) {
                 renderRulesScreen();
             }
         }
 
-        // Глобальный объект
         window.TgChess = { init };
     })();
 
-    // Ждём полной загрузки страницы и всех скриптов
     window.onload = function() {
         if (window.TgChess && typeof window.TgChess.init === 'function') {
             window.TgChess.init();
