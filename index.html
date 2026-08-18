@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Victory Chess</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     <style>
@@ -22,8 +21,22 @@
             padding: 12px;
             margin: 0;
             overflow-x: hidden;
+            overflow: hidden;
+            max-height: 100vh;
+            position: relative;
+            box-sizing: border-box;
         }
-        .container { max-width: 1200px; width: 100%; display: flex; flex-direction: column; align-items: center; }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden;
+            max-height: 100vh;
+            position: relative;
+            box-sizing: border-box;
+        }
         .btn { background: var(--tg-theme-secondary-bg-color, #1a1a1e); border: 1px solid var(--tg-theme-hint-color, #2d2d35); color: var(--tg-theme-text-color, #eee); padding: 8px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
         .btn:hover:not(:disabled) { background: var(--tg-theme-bg-color, #25252b); border-color: var(--tg-theme-button-color, #8a2be2); }
         .btn:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -129,1088 +142,1076 @@
     </style>
 </head>
 <body>
-<div class="container" id="app"></div>
-<script>
-    (function() {
-        // Глобальные переменные для движка
-        const SYM = { 'K':'♚','Q':'♛','R':'♜','B':'♝','N':'♞','P':'♟' };
-        const TOTAL_NEEDED = { 'K':1, 'Q':1, 'R':2, 'B':2, 'N':2 };
-        const BASE_PIECES = ['K','Q','R','R','B','B','N','N'];
-        const PIECE_VALUES = { 'P': 100, 'N': 310, 'B': 320, 'R': 500, 'Q': 900, 'K': 20000 };
+    <div class="container" id="app"></div>
+    <script>
+        (function() {
+            const SYM = { 'K':'♚','Q':'♛','R':'♜','B':'♝','N':'♞','P':'♟' };
+            const TOTAL_NEEDED = { 'K':1, 'Q':1, 'R':2, 'B':2, 'N':2 };
+            const BASE_PIECES = ['K','Q','R','R','B','B','N','N'];
+            const PIECE_VALUES = { 'P': 100, 'N': 310, 'B': 320, 'R': 500, 'Q': 900, 'K': 20000 };
 
-        // Состояние игры (глобальное)
-        let state = {
-            phase: 'rules',
-            whiteSetup: Array(8).fill(null),
-            blackSetup: Array(8).fill(null),
-            selectedPiece: null,
-            board: null,
-            turn: 'white',
-            selected: null,
-            possibleMoves: [],
-            gameOver: false,
-            kingMoved: { white: false, black: false },
-            rooksMoved: { white: [false, false], black: [false, false] },
-            initialRookCols: { white: [], black: [] },
-            moveLog: [],
-            elapsedSeconds: 0,
-            scoutTimer: 15,
-            isProcessingMove: false
-        };
-
-        let gameMode = 'bot'; 
-        let networkGameId = null;
-        let networkPlayerRole = null;
-        let difficulty = 'intermediate';
-        let playerColor = 'white';
-        let timerInterval = null;
-        let scoutInterval = null;
-        let networkListenerRef = null;
-        let db = null;
-
-        const app = document.getElementById('app');
-
-        // ---------- UI helpers ----------
-        function updateTgBackButton(tg) {
-            if (!tg) return;
-            if (state.phase === 'rules' || state.phase === 'menu' || state.phase === 'join') {
-                tg.BackButton.hide();
-            } else {
-                tg.BackButton.show();
-                tg.BackButton.onClick(handleBackAction);
-            }
-        }
-
-        function handleBackAction() {
-            if (networkGameId && db) {
-                db.ref('games/' + networkGameId).remove();
-                if (networkListenerRef) networkListenerRef();
-            }
-            resetEntireSystem();
-        }
-
-        // ---------- Генерация валидных расстановок ----------
-        function generateValidRandomSetup(isWhiteSide) {
-            for (let attempts = 0; attempts < 3000; attempts++) {
-                const arr = [...BASE_PIECES];
-                for (let i = arr.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [arr[i], arr[j]] = [arr[j], arr[i]];
-                }
-                const valid = validateArrayRules(arr, isWhiteSide);
-                if (valid.valid) return arr;
-            }
-            return ['R','N','B','Q','K','B','N','R'];
-        }
-
-        function validateArrayRules(arr, isWhiteSide) {
-            if (arr.some(c => c === null)) return { valid: false, reason: 'Заполните все 8 клеток' };
-            const kIdx = arr.indexOf('K');
-            const rIdx = arr.map((p,i) => p==='R'?i:-1).filter(i=>i>=0);
-            if (rIdx.length !== 2) return { valid: false, reason: 'Должно быть ровно 2 ладьи' };
-            if (kIdx < rIdx[0] || kIdx > rIdx[1]) return { valid: false, reason: 'Король должен быть между ладьями' };
-            const bIdx = arr.map((p,i) => p==='B'?i:-1).filter(i=>i>=0);
-            const nIdx = arr.map((p,i) => p==='N'?i:-1).filter(i=>i>=0);
-            if (bIdx.length !== 2) return { valid: false, reason: 'Должно быть ровно 2 слона' };
-            if (nIdx.length !== 2) return { valid: false, reason: 'Должно быть ровно 2 коня' };
-            const offset = isWhiteSide ? 0 : 1;
-            if ((bIdx[0] + offset) % 2 === (bIdx[1] + offset) % 2)
-                return { valid: false, reason: 'Слоны должны быть разнопольными' };
-            if ((nIdx[0] + offset) % 2 === (nIdx[1] + offset) % 2)
-                return { valid: false, reason: 'Кони должны быть разнопольными' };
-            return { valid: true };
-        }
-
-        function getCellInvalidFlags(setup, isWhiteSide) {
-            const flags = Array(8).fill(false);
-            const counts = {};
-            setup.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
-            setup.forEach((p, i) => { if (p && counts[p] > TOTAL_NEEDED[p]) flags[i] = true; });
-            return flags;
-        }
-
-        // ---------- Шахматный движок ----------
-        function initBoard() {
-            state.board = Array(8).fill().map(() => Array(8).fill(null));
-            state.kingMoved = { white: false, black: false };
-            state.rooksMoved = { white: [false, false], black: [false, false] };
-            state.moveLog = [];
-            state.turn = 'white';
-            state.gameOver = false;
-            state.isProcessingMove = false;
-            state.initialRookCols.white = state.whiteSetup.map((p,i) => p==='R'?i:-1).filter(i=>i>=0);
-            state.initialRookCols.black = state.blackSetup.map((p,i) => p==='R'?i:-1).filter(i=>i>=0);
-            for (let c = 0; c < 8; c++) {
-                state.board[0][c] = { type: state.whiteSetup[c], color: 'white' };
-                state.board[1][c] = { type: 'P', color: 'white' };
-                state.board[6][c] = { type: 'P', color: 'black' };
-                state.board[7][c] = { type: state.blackSetup[c], color: 'black' };
-            }
-        }
-
-        function getPseudoLegalMoves(boardState, row, col) {
-            const piece = boardState[row][col];
-            if (!piece) return [];
-            const { type, color } = piece;
-            const enemy = color === 'white' ? 'black' : 'white';
-            const moves = [];
-            const addMove = (r, c, meta = {}) => {
-                if (r < 0 || r > 7 || c < 0 || c > 7) return false;
-                const tgt = boardState[r][c];
-                if (tgt && tgt.color === color) return false;
-                moves.push({ row: r, col: c, ...meta });
-                return !tgt;
+            let state = {
+                phase: 'rules',
+                whiteSetup: Array(8).fill(null),
+                blackSetup: Array(8).fill(null),
+                selectedPiece: null,
+                board: null,
+                turn: 'white',
+                selected: null,
+                possibleMoves: [],
+                gameOver: false,
+                kingMoved: { white: false, black: false },
+                rooksMoved: { white: [false, false], black: [false, false] },
+                initialRookCols: { white: [], black: [] },
+                moveLog: [],
+                elapsedSeconds: 0,
+                scoutTimer: 15,
+                isProcessingMove: false
             };
 
-            switch (type) {
-                case 'P': {
-                    const dir = color === 'white' ? 1 : -1;
-                    const start = color === 'white' ? 1 : 6;
-                    if (row + dir >= 0 && row + dir <= 7 && !boardState[row + dir][col]) {
-                        addMove(row + dir, col);
-                        if (row === start && !boardState[row + 2 * dir][col]) addMove(row + 2 * dir, col);
-                    }
-                    [-1, 1].forEach(side => {
-                        const nc = col + side;
-                        if (nc >= 0 && nc <= 7 && boardState[row + dir]?.[nc]?.color === enemy) {
-                            addMove(row + dir, nc, { isCapture: true });
-                        }
-                    });
-                    break;
-                }
-                case 'N': {
-                    const offsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-                    for (const [dr, dc] of offsets) {
-                        const r2 = row + dr, c2 = col + dc;
-                        if (r2 >= 0 && r2 <= 7 && c2 >= 0 && c2 <= 7) {
-                            addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] });
-                        }
-                    }
-                    break;
-                }
-                case 'B': {
-                    const dirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
-                    for (const [dr, dc] of dirs) {
-                        for (let i = 1; i < 8; i++) {
-                            const r2 = row + dr * i;
-                            const c2 = col + dc * i;
-                            if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
-                            if (!addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
-                        }
-                    }
-                    break;
-                }
-                case 'R': {
-                    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-                    for (const [dr, dc] of dirs) {
-                        for (let i = 1; i < 8; i++) {
-                            const r2 = row + dr * i;
-                            const c2 = col + dc * i;
-                            if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
-                            if (!addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
-                        }
-                    }
-                    break;
-                }
-                case 'Q': {
-                    const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-                    for (const [dr, dc] of dirs) {
-                        for (let i = 1; i < 8; i++) {
-                            const r2 = row + dr * i;
-                            const c2 = col + dc * i;
-                            if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
-                            if (!addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
-                        }
-                    }
-                    break;
-                }
-                case 'K': {
-                    const dirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
-                    for (const [dr, dc] of dirs) {
-                        const r2 = row + dr, c2 = col + dc;
-                        if (r2 >= 0 && r2 <= 7 && c2 >= 0 && c2 <= 7) {
-                            addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] });
-                        }
-                    }
-                    // Рокировки Chess960
-                    if (!state.kingMoved[color]) {
-                        const rRow = color === 'white' ? 0 : 7;
-                        const rooks = state.initialRookCols[color];
-                        if (rooks && rooks.length === 2) {
-                            if (!state.rooksMoved[color][0] && isCastlingPathClear(boardState, rRow, col, rooks[0], 2, 3)) {
-                                moves.push({ row: rRow, col: rooks[0], castling: 'long' });
-                            }
-                            if (!state.rooksMoved[color][1] && isCastlingPathClear(boardState, rRow, col, rooks[1], 6, 5)) {
-                                moves.push({ row: rRow, col: rooks[1], castling: 'short' });
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-            return moves;
-        }
+            let gameMode = 'bot';
+            let networkGameId = null;
+            let networkPlayerRole = null;
+            let difficulty = 'intermediate';
+            let playerColor = 'white';
+            let timerInterval = null;
+            let scoutInterval = null;
+            let networkListenerRef = null;
+            let db = null;
 
-        function isCastlingPathClear(board, row, kCol, rCol, targetKCol, targetRCol) {
-            const minCol = Math.min(kCol, rCol, targetKCol, targetRCol);
-            const maxCol = Math.max(kCol, rCol, targetKCol, targetRCol);
-            for (let c = minCol; c <= maxCol; c++) {
-                if (c !== kCol && c !== rCol && board[row][c] !== null) return false;
-            }
-            return true;
-        }
+            const app = document.getElementById('app');
 
-        function getLegalMoves(boardState, row, col) {
-            const piece = boardState[row][col];
-            if (!piece) return [];
-            return getPseudoLegalMoves(boardState, row, col).filter(m => {
-                const backup = boardState[m.row][m.col];
-                boardState[m.row][m.col] = piece;
-                boardState[row][col] = null;
-                const king = findKingPosition(boardState, piece.color);
-                const safe = king ? !isSquareAttacked(boardState, king.row, king.col, piece.color === 'white' ? 'black' : 'white') : false;
-                boardState[row][col] = piece;
-                boardState[m.row][m.col] = backup;
-                return safe;
-            });
-        }
-
-        function getAllLegalMoves(boardState, color) {
-            const moves = [];
-            for (let r = 0; r < 8; r++) {
-                for (let c = 0; c < 8; c++) {
-                    if (boardState[r][c]?.color === color) {
-                        getLegalMoves(boardState, r, c).forEach(m => {
-                            moves.push({
-                                fromR: r,
-                                fromC: c,
-                                toR: m.row,
-                                toC: m.col,
-                                castling: m.castling
-                            });
-                        });
-                    }
-                }
-            }
-            return moves;
-        }
-
-        function findKingPosition(board, color) {
-            for (let r = 0; r < 8; r++) {
-                for (let c = 0; c < 8; c++) {
-                    if (board[r][c]?.type === 'K' && board[r][c]?.color === color) return { row: r, col: c };
-                }
-            }
-            return null;
-        }
-
-        function isSquareAttacked(board, row, col, byColor) {
-            for (let r = 0; r < 8; r++) {
-                for (let c = 0; c < 8; c++) {
-                    if (board[r][c]?.color === byColor) {
-                        if (getPseudoLegalMoves(board, r, c).some(m => m.row === row && m.col === col)) return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        // ---------- Оценка и ИИ ----------
-        function evaluatePosition(board) {
-            let score = 0;
-            for (let r = 0; r < 8; r++) {
-                for (let c = 0; c < 8; c++) {
-                    const item = board[r][c];
-                    if (!item) continue;
-                    const val = PIECE_VALUES[item.type] || 0;
-                    const centerBonus = (7 - (Math.abs(r - 3.5) + Math.abs(c - 3.5))) * 4;
-                    score += (item.color === 'white' ? 1 : -1) * (val + centerBonus);
-                }
-            }
-            return score;
-        }
-
-        function alphaBeta(board, depth, alpha, beta, isMax) {
-            if (depth === 0) return evaluatePosition(board);
-            const side = isMax ? 'white' : 'black';
-            const moves = getAllLegalMoves(board, side);
-            if (moves.length === 0) {
-                const king = findKingPosition(board, side);
-                if (king && isSquareAttacked(board, king.row, king.col, isMax ? 'black' : 'white')) {
-                    return isMax ? -25000 + (5 - depth) : 25000 - (5 - depth);
-                }
-                return 0;
-            }
-            if (isMax) {
-                let v = -Infinity;
-                for (let m of moves) {
-                    makeVirtualMove(board, m, false);
-                    v = Math.max(v, alphaBeta(board, depth - 1, alpha, beta, false));
-                    makeVirtualMove(board, m, true);
-                    alpha = Math.max(alpha, v);
-                    if (beta <= alpha) break;
-                }
-                return v;
-            } else {
-                let v = Infinity;
-                for (let m of moves) {
-                    makeVirtualMove(board, m, false);
-                    v = Math.min(v, alphaBeta(board, depth - 1, alpha, beta, true));
-                    makeVirtualMove(board, m, true);
-                    beta = Math.min(beta, v);
-                    if (beta <= alpha) break;
-                }
-                return v;
-            }
-        }
-
-        function makeVirtualMove(board, m, undo) {
-            if (undo) {
-                const undoData = m?._undoData;
-                if (!undoData) return;
-                if (undoData.wasCastling) {
-                    const row = undoData.fromR;
-                    board[row][undoData.targetKCol] = null;
-                    board[row][undoData.targetRCol] = null;
-                    board[row][undoData.fromC] = undoData.king;
-                    board[row][undoData.toC] = undoData.rook;
+            function updateTgBackButton(tg) {
+                if (!tg) return;
+                if (state.phase === 'rules' || state.phase === 'menu' || state.phase === 'join') {
+                    tg.BackButton.hide();
                 } else {
-                    board[undoData.fromR][undoData.fromC] = undoData.piece;
-                    board[undoData.toR][undoData.toC] = undoData.captured;
+                    tg.BackButton.show();
+                    tg.BackButton.onClick(handleBackAction);
                 }
-                return;
             }
-            const piece = board[m.fromR][m.fromC];
-            if (!piece) return;
-            const captured = board[m.toR][m.toC];
-            const undoData = {
-                fromR: m.fromR,
-                fromC: m.fromC,
-                toR: m.toR,
-                toC: m.toC,
-                piece: piece,
-                captured: captured,
-                wasCastling: false
-            };
-            if (m.castling) {
-                const row = m.fromR;
-                const oldKingCol = m.fromC;
-                const oldRookCol = m.toC;
-                const targetKCol = m.castling === 'long' ? 2 : 6;
-                const targetRCol = m.castling === 'long' ? 3 : 5;
-                const rook = board[row][oldRookCol];
-                if (!rook) return;
-                undoData.king = piece;
-                undoData.rook = rook;
-                undoData.targetKCol = targetKCol;
-                undoData.targetRCol = targetRCol;
-                undoData.wasCastling = true;
-                board[row][oldKingCol] = null;
-                board[row][oldRookCol] = null;
-                board[row][targetKCol] = piece;
-                board[row][targetRCol] = rook;
-                m._undoData = undoData;
-                return;
-            }
-            board[m.toR][m.toC] = piece;
-            board[m.fromR][m.fromC] = null;
-            if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) {
-                board[m.toR][m.toC] = { type: 'Q', color: piece.color };
-            }
-            m._undoData = undoData;
-        }
 
-        function calcAIMove() {
-            const color = playerColor === 'white' ? 'black' : 'white';
-            const moves = getAllLegalMoves(state.board, color);
-            if (moves.length === 0) return null;
-            if (difficulty === 'novice') return moves[Math.floor(Math.random() * moves.length)];
-            let best = null;
-            let bestV = color === 'white' ? -Infinity : Infinity;
-            const depth = difficulty === 'grandmaster' ? 3 : 1;
-            for (let m of moves) {
-                makeVirtualMove(state.board, m, false);
-                const v = alphaBeta(state.board, depth, -Infinity, Infinity, color === 'white');
-                makeVirtualMove(state.board, m, true);
-                if (color === 'white' && v > bestV) { bestV = v; best = m; }
-                if (color === 'black' && v < bestV) { bestV = v; best = m; }
+            function handleBackAction() {
+                if (networkGameId && db) {
+                    db.ref('games/' + networkGameId).remove();
+                    if (networkListenerRef) networkListenerRef();
+                }
+                resetEntireSystem();
             }
-            return best;
-        }
 
-        function checkMaterialDraw() {
-            let whitePieces = [], blackPieces = [];
-            for (let r = 0; r < 8; r++) {
+            function generateValidRandomSetup(isWhiteSide) {
+                for (let attempts = 0; attempts < 3000; attempts++) {
+                    const arr = [...BASE_PIECES];
+                    for (let i = arr.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [arr[i], arr[j]] = [arr[j], arr[i]];
+                    }
+                    const valid = validateArrayRules(arr, isWhiteSide);
+                    if (valid.valid) return arr;
+                }
+                return ['R','N','B','Q','K','B','N','R'];
+            }
+
+            function validateArrayRules(arr, isWhiteSide) {
+                if (arr.some(c => c === null)) return { valid: false, reason: 'Заполните все 8 клеток' };
+                const kIdx = arr.indexOf('K');
+                const rIdx = arr.map((p,i) => p==='R'?i:-1).filter(i=>i>=0);
+                if (rIdx.length !== 2) return { valid: false, reason: 'Должно быть ровно 2 ладьи' };
+                if (kIdx < rIdx[0] || kIdx > rIdx[1]) return { valid: false, reason: 'Король должен быть между ладьями' };
+                const bIdx = arr.map((p,i) => p==='B'?i:-1).filter(i=>i>=0);
+                const nIdx = arr.map((p,i) => p==='N'?i:-1).filter(i=>i>=0);
+                if (bIdx.length !== 2) return { valid: false, reason: 'Должно быть ровно 2 слона' };
+                if (nIdx.length !== 2) return { valid: false, reason: 'Должно быть ровно 2 коня' };
+                const offset = isWhiteSide ? 0 : 1;
+                if ((bIdx[0] + offset) % 2 === (bIdx[1] + offset) % 2)
+                    return { valid: false, reason: 'Слоны должны быть разнопольными' };
+                if ((nIdx[0] + offset) % 2 === (nIdx[1] + offset) % 2)
+                    return { valid: false, reason: 'Кони должны быть разнопольными' };
+                return { valid: true };
+            }
+
+            function getCellInvalidFlags(setup, isWhiteSide) {
+                const flags = Array(8).fill(false);
+                const counts = {};
+                setup.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
+                setup.forEach((p, i) => { if (p && counts[p] > TOTAL_NEEDED[p]) flags[i] = true; });
+                return flags;
+            }
+
+            function initBoard() {
+                state.board = Array(8).fill().map(() => Array(8).fill(null));
+                state.kingMoved = { white: false, black: false };
+                state.rooksMoved = { white: [false, false], black: [false, false] };
+                state.moveLog = [];
+                state.turn = 'white';
+                state.gameOver = false;
+                state.isProcessingMove = false;
+                state.initialRookCols.white = state.whiteSetup.map((p,i) => p==='R'?i:-1).filter(i=>i>=0);
+                state.initialRookCols.black = state.blackSetup.map((p,i) => p==='R'?i:-1).filter(i=>i>=0);
                 for (let c = 0; c < 8; c++) {
-                    const p = state.board[r][c];
-                    if (p && p.type !== 'K') {
-                        if (p.color === 'white') whitePieces.push(p.type);
-                        else blackPieces.push(p.type);
-                    }
+                    state.board[0][c] = { type: state.whiteSetup[c], color: 'white' };
+                    state.board[1][c] = { type: 'P', color: 'white' };
+                    state.board[6][c] = { type: 'P', color: 'black' };
+                    state.board[7][c] = { type: state.blackSetup[c], color: 'black' };
                 }
             }
-            if (whitePieces.length === 0 && blackPieces.length === 0) return true;
-            if ((whitePieces.length === 0 && blackPieces.length === 1 && (blackPieces[0] === 'N' || blackPieces[0] === 'B')) ||
-                (blackPieces.length === 0 && whitePieces.length === 1 && (whitePieces[0] === 'N' || whitePieces[0] === 'B'))) return true;
-            return false;
-        }
 
-        // ---------- Выполнение хода ----------
-        function commitMove(fromR, fromC, toR, toC, castling) {
-            if (state.isProcessingMove) return;
-            state.isProcessingMove = true;
+            function getPseudoLegalMoves(boardState, row, col) {
+                const piece = boardState[row][col];
+                if (!piece) return [];
+                const { type, color } = piece;
+                const enemy = color === 'white' ? 'black' : 'white';
+                const moves = [];
+                const addMove = (r, c, meta = {}) => {
+                    if (r < 0 || r > 7 || c < 0 || c > 7) return false;
+                    const tgt = boardState[r][c];
+                    if (tgt && tgt.color === color) return false;
+                    moves.push({ row: r, col: c, ...meta });
+                    return !tgt;
+                };
 
-            const p = state.board[fromR][fromC];
-            if (!p) { state.isProcessingMove = false; return; }
-            const target = state.board[toR][toC];
-            let note = '';
-
-            if (castling) {
-                const tk = castling === 'long' ? 2 : 6;
-                const tr = castling === 'long' ? 3 : 5;
-                state.board[fromR][fromC] = null;
-                state.board[toR][toC] = null;
-                state.board[fromR][tk] = p;
-                state.board[fromR][tr] = { type: 'R', color: p.color };
-                note = castling === 'long' ? '0-0-0' : '0-0';
-                state.kingMoved[p.color] = true;
-            } else {
-                state.board[toR][toC] = p;
-                state.board[fromR][fromC] = null;
-                if (p.type === 'K') state.kingMoved[p.color] = true;
-                // ИСПРАВЛЕННЫЙ ТРЕКЕР ЛАДЬИ – используем математическую колонку fromC без инверта
-                if (p.type === 'R') {
-                    const idx = state.initialRookCols[p.color].indexOf(fromC);
-                    if (idx !== -1) {
-                        state.rooksMoved[p.color][idx] = true;
+                switch (type) {
+                    case 'P': {
+                        const dir = color === 'white' ? 1 : -1;
+                        const start = color === 'white' ? 1 : 6;
+                        if (row + dir >= 0 && row + dir <= 7 && !boardState[row + dir][col]) {
+                            addMove(row + dir, col);
+                            if (row === start && !boardState[row + 2 * dir][col]) addMove(row + 2 * dir, col);
+                        }
+                        [-1, 1].forEach(side => {
+                            const nc = col + side;
+                            if (nc >= 0 && nc <= 7 && boardState[row + dir]?.[nc]?.color === enemy) {
+                                addMove(row + dir, nc, { isCapture: true });
+                            }
+                        });
+                        break;
+                    }
+                    case 'N': {
+                        const offsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+                        for (const [dr, dc] of offsets) {
+                            const r2 = row + dr, c2 = col + dc;
+                            if (r2 >= 0 && r2 <= 7 && c2 >= 0 && c2 <= 7) {
+                                addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] });
+                            }
+                        }
+                        break;
+                    }
+                    case 'B': {
+                        const dirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
+                        for (const [dr, dc] of dirs) {
+                            for (let i = 1; i < 8; i++) {
+                                const r2 = row + dr * i;
+                                const c2 = col + dc * i;
+                                if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
+                                if (!addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
+                            }
+                        }
+                        break;
+                    }
+                    case 'R': {
+                        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+                        for (const [dr, dc] of dirs) {
+                            for (let i = 1; i < 8; i++) {
+                                const r2 = row + dr * i;
+                                const c2 = col + dc * i;
+                                if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
+                                if (!addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
+                            }
+                        }
+                        break;
+                    }
+                    case 'Q': {
+                        const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+                        for (const [dr, dc] of dirs) {
+                            for (let i = 1; i < 8; i++) {
+                                const r2 = row + dr * i;
+                                const c2 = col + dc * i;
+                                if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) break;
+                                if (!addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] })) break;
+                            }
+                        }
+                        break;
+                    }
+                    case 'K': {
+                        const dirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+                        for (const [dr, dc] of dirs) {
+                            const r2 = row + dr, c2 = col + dc;
+                            if (r2 >= 0 && r2 <= 7 && c2 >= 0 && c2 <= 7) {
+                                addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] });
+                            }
+                        }
+                        if (!state.kingMoved[color]) {
+                            const rRow = color === 'white' ? 0 : 7;
+                            const rooks = state.initialRookCols[color];
+                            if (rooks && rooks.length === 2) {
+                                if (!state.rooksMoved[color][0] && isCastlingPathClear(boardState, rRow, col, rooks[0], 2, 3)) {
+                                    moves.push({ row: rRow, col: rooks[0], castling: 'long' });
+                                }
+                                if (!state.rooksMoved[color][1] && isCastlingPathClear(boardState, rRow, col, rooks[1], 6, 5)) {
+                                    moves.push({ row: rRow, col: rooks[1], castling: 'short' });
+                                }
+                            }
+                        }
+                        break;
                     }
                 }
-                if (p.type === 'P' && (toR === 0 || toR === 7)) {
-                    state.board[toR][toC] = { type: 'Q', color: p.color };
-                }
-                const fromNotation = String.fromCharCode(97 + fromC) + (8 - fromR);
-                const toNotation = String.fromCharCode(97 + toC) + (8 - toR);
-                note = `${p.type === 'P' ? '' : p.type}${fromNotation}${target ? 'x' : '-'}${toNotation}`;
+                return moves;
             }
 
-            state.moveLog.push({ color: p.color, text: note });
-            state.selected = null;
-            state.possibleMoves = [];
+            function isCastlingPathClear(board, row, kCol, rCol, targetKCol, targetRCol) {
+                const minCol = Math.min(kCol, rCol, targetKCol, targetRCol);
+                const maxCol = Math.max(kCol, rCol, targetKCol, targetRCol);
+                for (let c = minCol; c <= maxCol; c++) {
+                    if (c !== kCol && c !== rCol && board[row][c] !== null) return false;
+                }
+                return true;
+            }
 
-            if (gameMode === 'network' && networkGameId && db) {
-                db.ref('games/' + networkGameId).update({
-                    board: state.board,
-                    turn: p.color === 'white' ? 'black' : 'white',
-                    moveLog: state.moveLog,
-                    kingMoved: state.kingMoved,
-                    rooksMoved: state.rooksMoved
+            function getLegalMoves(boardState, row, col) {
+                const piece = boardState[row][col];
+                if (!piece) return [];
+                return getPseudoLegalMoves(boardState, row, col).filter(m => {
+                    const backup = boardState[m.row][m.col];
+                    boardState[m.row][m.col] = piece;
+                    boardState[row][col] = null;
+                    const king = findKingPosition(boardState, piece.color);
+                    const safe = king ? !isSquareAttacked(boardState, king.row, king.col, piece.color === 'white' ? 'black' : 'white') : false;
+                    boardState[row][col] = piece;
+                    boardState[m.row][m.col] = backup;
+                    return safe;
                 });
             }
 
-            const next = p.color === 'white' ? 'black' : 'white';
-            const kPos = findKingPosition(state.board, next);
-            if (kPos) {
-                const check = isSquareAttacked(state.board, kPos.row, kPos.col, p.color);
-                const moves = getAllLegalMoves(state.board, next);
-                if (check && moves.length === 0) {
-                    state.gameOver = true;
-                    if (gameMode === 'network' && networkGameId && db) {
-                        db.ref('games/' + networkGameId).update({ gameOver: true, winner: p.color });
+            function getAllLegalMoves(boardState, color) {
+                const moves = [];
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        if (boardState[r][c]?.color === color) {
+                            getLegalMoves(boardState, r, c).forEach(m => {
+                                moves.push({
+                                    fromR: r,
+                                    fromC: c,
+                                    toR: m.row,
+                                    toC: m.col,
+                                    castling: m.castling
+                                });
+                            });
+                        }
                     }
-                    setTimeout(() => alert(`Мат! Победили ${p.color === 'white' ? 'Белые' : 'Черные'}`), 60);
-                } else if (!check && moves.length === 0) {
+                }
+                return moves;
+            }
+
+            function findKingPosition(board, color) {
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        if (board[r][c]?.type === 'K' && board[r][c]?.color === color) return { row: r, col: c };
+                    }
+                }
+                return null;
+            }
+
+            function isSquareAttacked(board, row, col, byColor) {
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        if (board[r][c]?.color === byColor) {
+                            if (getPseudoLegalMoves(board, r, c).some(m => m.row === row && m.col === col)) return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            function evaluatePosition(board) {
+                let score = 0;
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const item = board[r][c];
+                        if (!item) continue;
+                        const val = PIECE_VALUES[item.type] || 0;
+                        const centerBonus = (7 - (Math.abs(r - 3.5) + Math.abs(c - 3.5))) * 4;
+                        score += (item.color === 'white' ? 1 : -1) * (val + centerBonus);
+                    }
+                }
+                return score;
+            }
+
+            function alphaBeta(board, depth, alpha, beta, isMax) {
+                if (depth === 0) return evaluatePosition(board);
+                const side = isMax ? 'white' : 'black';
+                const moves = getAllLegalMoves(board, side);
+                if (moves.length === 0) {
+                    const king = findKingPosition(board, side);
+                    if (king && isSquareAttacked(board, king.row, king.col, isMax ? 'black' : 'white')) {
+                        return isMax ? -25000 + (5 - depth) : 25000 - (5 - depth);
+                    }
+                    return 0;
+                }
+                if (isMax) {
+                    let v = -Infinity;
+                    for (let m of moves) {
+                        makeVirtualMove(board, m, false);
+                        v = Math.max(v, alphaBeta(board, depth - 1, alpha, beta, false));
+                        makeVirtualMove(board, m, true);
+                        alpha = Math.max(alpha, v);
+                        if (beta <= alpha) break;
+                    }
+                    return v;
+                } else {
+                    let v = Infinity;
+                    for (let m of moves) {
+                        makeVirtualMove(board, m, false);
+                        v = Math.min(v, alphaBeta(board, depth - 1, alpha, beta, true));
+                        makeVirtualMove(board, m, true);
+                        beta = Math.min(beta, v);
+                        if (beta <= alpha) break;
+                    }
+                    return v;
+                }
+            }
+
+            function makeVirtualMove(board, m, undo) {
+                if (undo) {
+                    const undoData = m?._undoData;
+                    if (!undoData) return;
+                    if (undoData.wasCastling) {
+                        const row = undoData.fromR;
+                        board[row][undoData.targetKCol] = null;
+                        board[row][undoData.targetRCol] = null;
+                        board[row][undoData.fromC] = undoData.king;
+                        board[row][undoData.toC] = undoData.rook;
+                    } else {
+                        board[undoData.fromR][undoData.fromC] = undoData.piece;
+                        board[undoData.toR][undoData.toC] = undoData.captured;
+                    }
+                    return;
+                }
+                const piece = board[m.fromR][m.fromC];
+                if (!piece) return;
+                const captured = board[m.toR][m.toC];
+                const undoData = {
+                    fromR: m.fromR,
+                    fromC: m.fromC,
+                    toR: m.toR,
+                    toC: m.toC,
+                    piece: piece,
+                    captured: captured,
+                    wasCastling: false
+                };
+                if (m.castling) {
+                    const row = m.fromR;
+                    const oldKingCol = m.fromC;
+                    const oldRookCol = m.toC;
+                    const targetKCol = m.castling === 'long' ? 2 : 6;
+                    const targetRCol = m.castling === 'long' ? 3 : 5;
+                    const rook = board[row][oldRookCol];
+                    if (!rook) return;
+                    undoData.king = piece;
+                    undoData.rook = rook;
+                    undoData.targetKCol = targetKCol;
+                    undoData.targetRCol = targetRCol;
+                    undoData.wasCastling = true;
+                    board[row][oldKingCol] = null;
+                    board[row][oldRookCol] = null;
+                    board[row][targetKCol] = piece;
+                    board[row][targetRCol] = rook;
+                    m._undoData = undoData;
+                    return;
+                }
+                board[m.toR][m.toC] = piece;
+                board[m.fromR][m.fromC] = null;
+                if (piece.type === 'P' && (m.toR === 0 || m.toR === 7)) {
+                    board[m.toR][m.toC] = { type: 'Q', color: piece.color };
+                }
+                m._undoData = undoData;
+            }
+
+            function calcAIMove() {
+                const color = playerColor === 'white' ? 'black' : 'white';
+                const moves = getAllLegalMoves(state.board, color);
+                if (moves.length === 0) return null;
+                if (difficulty === 'novice') return moves[Math.floor(Math.random() * moves.length)];
+                let best = null;
+                let bestV = color === 'white' ? -Infinity : Infinity;
+                const depth = difficulty === 'grandmaster' ? 3 : 1;
+                for (let m of moves) {
+                    makeVirtualMove(state.board, m, false);
+                    const v = alphaBeta(state.board, depth, -Infinity, Infinity, color === 'white');
+                    makeVirtualMove(state.board, m, true);
+                    if (color === 'white' && v > bestV) { bestV = v; best = m; }
+                    if (color === 'black' && v < bestV) { bestV = v; best = m; }
+                }
+                return best;
+            }
+
+            function checkMaterialDraw() {
+                let whitePieces = [], blackPieces = [];
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const p = state.board[r][c];
+                        if (p && p.type !== 'K') {
+                            if (p.color === 'white') whitePieces.push(p.type);
+                            else blackPieces.push(p.type);
+                        }
+                    }
+                }
+                if (whitePieces.length === 0 && blackPieces.length === 0) return true;
+                if ((whitePieces.length === 0 && blackPieces.length === 1 && (blackPieces[0] === 'N' || blackPieces[0] === 'B')) ||
+                    (blackPieces.length === 0 && whitePieces.length === 1 && (whitePieces[0] === 'N' || whitePieces[0] === 'B'))) return true;
+                return false;
+            }
+
+            function commitMove(fromR, fromC, toR, toC, castling) {
+                if (state.isProcessingMove) return;
+                state.isProcessingMove = true;
+
+                const p = state.board[fromR][fromC];
+                if (!p) { state.isProcessingMove = false; return; }
+                const target = state.board[toR][toC];
+                let note = '';
+
+                if (castling) {
+                    const tk = castling === 'long' ? 2 : 6;
+                    const tr = castling === 'long' ? 3 : 5;
+                    state.board[fromR][fromC] = null;
+                    state.board[toR][toC] = null;
+                    state.board[fromR][tk] = p;
+                    state.board[fromR][tr] = { type: 'R', color: p.color };
+                    note = castling === 'long' ? '0-0-0' : '0-0';
+                    state.kingMoved[p.color] = true;
+                } else {
+                    state.board[toR][toC] = p;
+                    state.board[fromR][fromC] = null;
+                    if (p.type === 'K') state.kingMoved[p.color] = true;
+                    if (p.type === 'R') {
+                        const idx = state.initialRookCols[p.color].indexOf(fromC);
+                        if (idx !== -1) {
+                            state.rooksMoved[p.color][idx] = true;
+                        }
+                    }
+                    if (p.type === 'P' && (toR === 0 || toR === 7)) {
+                        state.board[toR][toC] = { type: 'Q', color: p.color };
+                    }
+                    const fromNotation = String.fromCharCode(97 + fromC) + (8 - fromR);
+                    const toNotation = String.fromCharCode(97 + toC) + (8 - toR);
+                    note = `${p.type === 'P' ? '' : p.type}${fromNotation}${target ? 'x' : '-'}${toNotation}`;
+                }
+
+                state.moveLog.push({ color: p.color, text: note });
+                state.selected = null;
+                state.possibleMoves = [];
+
+                if (gameMode === 'network' && networkGameId && db) {
+                    db.ref('games/' + networkGameId).update({
+                        board: state.board,
+                        turn: p.color === 'white' ? 'black' : 'white',
+                        moveLog: state.moveLog,
+                        kingMoved: state.kingMoved,
+                        rooksMoved: state.rooksMoved
+                    });
+                }
+
+                const next = p.color === 'white' ? 'black' : 'white';
+                const kPos = findKingPosition(state.board, next);
+                if (kPos) {
+                    const check = isSquareAttacked(state.board, kPos.row, kPos.col, p.color);
+                    const moves = getAllLegalMoves(state.board, next);
+                    if (check && moves.length === 0) {
+                        state.gameOver = true;
+                        if (gameMode === 'network' && networkGameId && db) {
+                            db.ref('games/' + networkGameId).update({ gameOver: true, winner: p.color });
+                        }
+                        setTimeout(() => alert(`Мат! Победили ${p.color === 'white' ? 'Белые' : 'Черные'}`), 60);
+                    } else if (!check && moves.length === 0) {
+                        state.gameOver = true;
+                        if (gameMode === 'network' && networkGameId && db) {
+                            db.ref('games/' + networkGameId).update({ gameOver: true, winner: 'draw' });
+                        }
+                        setTimeout(() => alert('Пат! Ничья.'), 60);
+                    }
+                }
+                if (checkMaterialDraw()) {
                     state.gameOver = true;
                     if (gameMode === 'network' && networkGameId && db) {
                         db.ref('games/' + networkGameId).update({ gameOver: true, winner: 'draw' });
                     }
-                    setTimeout(() => alert('Пат! Ничья.'), 60);
+                    setTimeout(() => alert('Ничья из-за недостатка материала.'), 60);
                 }
-            }
-            if (checkMaterialDraw()) {
-                state.gameOver = true;
-                if (gameMode === 'network' && networkGameId && db) {
-                    db.ref('games/' + networkGameId).update({ gameOver: true, winner: 'draw' });
-                }
-                setTimeout(() => alert('Ничья из-за недостатка материала.'), 60);
-            }
 
-            state.turn = next;
-            renderPlayScreen();
-            state.isProcessingMove = false;
-
-            if (gameMode === 'bot' && !state.gameOver && state.turn !== playerColor) {
-                triggerAIResponse();
-            }
-        }
-
-        function triggerAIResponse() {
-            if (state.gameOver || state.isProcessingMove) return;
-            const aiColor = playerColor === 'white' ? 'black' : 'white';
-            if (state.turn !== aiColor) return;
-            state.isProcessingMove = true;
-            setTimeout(() => {
-                const m = calcAIMove();
-                if (m) commitMove(m.fromR, m.fromC, m.toR, m.toC, m.castling);
+                state.turn = next;
+                renderPlayScreen();
                 state.isProcessingMove = false;
-            }, 400);
-        }
 
-        // ---------- Сетевой мультиплеер ----------
-        function startNetworkGameListener(gameCode) {
-            if (!db) return;
-            if (networkListenerRef) networkListenerRef();
-            const ref = db.ref('games/' + gameCode);
-            networkListenerRef = ref.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (!data) {
-                    if (state.phase === 'play' || state.phase === 'scout' || state.phase === 'waiting_for_player') {
-                        alert('Комната удалена. Игра завершена.');
-                        resetEntireSystem();
-                    }
-                    return;
+                if (gameMode === 'bot' && !state.gameOver && state.turn !== playerColor) {
+                    triggerAIResponse();
                 }
-                if (state.phase === 'waiting_for_player' && data.status === 'ready') {
-                    state.blackSetup = data.blackSetup;
-                    initBoard();
-                    renderPlayScreen();
-                    launchScoutPhaseAfterRender();
-                    return;
-                }
-                if (networkPlayerRole === 'joiner' && state.phase === 'setup_black' && data.whiteSetup) {
-                    state.whiteSetup = data.whiteSetup;
-                }
-                if (state.phase === 'play' || state.phase === 'scout') {
-                    if (data.moveLog && data.moveLog.length > state.moveLog.length) {
-                        state.board = data.board;
-                        state.turn = data.turn;
-                        state.moveLog = data.moveLog;
-                        state.kingMoved = data.kingMoved;
-                        state.rooksMoved = data.rooksMoved;
-                        renderPlayScreen();
-                    }
-                    if (data.gameOver && !state.gameOver) {
-                        state.gameOver = true;
-                        if (data.winner === 'draw') alert('Матч завершен вничью!');
-                        else alert(`Игра окончена! Победили ${data.winner === 'white' ? 'Белые' : 'Черные'}`);
-                    }
-                }
-            });
-        }
+            }
 
-        // ---------- UI-рендер ----------
-        function renderRulesScreen() {
-            state.phase = 'rules';
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            app.innerHTML = `
-                <div class="title">♔ Victory Chess</div>
-                <div class="subtitle">Посвящается дедушке Виктору</div>
-                <div class="rules-container">
-                    <h2>ПРАВИЛА ИГРЫ</h2>
-                    <ul>
-                        <li><span class="highlight">Декбилдинг дебюта:</span> Перед игрой вы сами настраиваете стартовый ряд ваших главных фигур. Всего существует <span class="highlight">576</span> уникальных валидных комбинаций!</li>
-                        <li><span class="highlight">Условия баланса:</span> Король всегда обязан стоять где-то между двумя ладьями. Кони и Слоны должны стоять на разных цветах попарно.</li>
-                        <li><span class="highlight">Анализ поля:</span> Игра начинается вслепую. После открытия досок дается 15 секунд на изучение позиций соперника, во время которых нельзя ходить.</li>
-                    </ul>
-                    <div class="btn-wrap">
-                        <button class="btn-start-rules" id="r-next">В главное меню</button>
-                    </div>
-                </div>
-            `;
-            document.getElementById('r-next').onclick = renderMenuScreen;
-        }
+            function triggerAIResponse() {
+                if (state.gameOver || state.isProcessingMove) return;
+                const aiColor = playerColor === 'white' ? 'black' : 'white';
+                if (state.turn !== aiColor) return;
+                state.isProcessingMove = true;
+                setTimeout(() => {
+                    const m = calcAIMove();
+                    if (m) commitMove(m.fromR, m.fromC, m.toR, m.toC, m.castling);
+                    state.isProcessingMove = false;
+                }, 400);
+            }
 
-        function renderMenuScreen() {
-            state.phase = 'menu';
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            app.innerHTML = `
-                <div class="title">♔ Victory Chess</div>
-                <div class="subtitle">Тактический декбилдинг до первого хода</div>
-                <div class="menu-container">
-                    <button class="btn btn-menu" id="m-pve">🤖 Одиночная игра против ИИ</button>
-                    <button class="btn btn-menu" id="m-create">🆕 Создать комнату</button>
-                    <button class="btn btn-menu" id="m-join">🔗 Подключиться к комнате</button>
-                    <button class="btn btn-menu" id="m-pvp">👥 На двоих (За одним экраном)</button>
-                </div>
-            `;
-            document.getElementById('m-pve').onclick = () => { gameMode = 'bot'; renderOptionsScreen(); };
-            document.getElementById('m-create').onclick = createNetworkRoom;
-            document.getElementById('m-join').onclick = renderJoinScreen;
-            document.getElementById('m-pvp').onclick = () => { gameMode = 'multi'; state.phase = 'setup_white'; renderSetupScreen('white'); };
-        }
-
-        function renderJoinScreen() {
-            state.phase = 'join';
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            app.innerHTML = `
-                <div class="title">♔ Victory Chess</div>
-                <div class="subtitle">Введите код комнаты друга</div>
-                <div class="menu-container">
-                    <input id="room-code-input" type="text" maxlength="5" placeholder="Например: 12345">
-                    <div class="flex-row">
-                        <button class="btn btn-primary" id="join-connect">Подключиться</button>
-                        <button class="btn" id="join-back">Назад</button>
-                    </div>
-                    <div id="join-error" style="color:#ef4444; margin-top:10px;"></div>
-                </div>
-            `;
-            document.getElementById('join-connect').onclick = function() {
-                const code = document.getElementById('room-code-input').value.trim();
-                const errEl = document.getElementById('join-error');
-                if (!code) { errEl.innerText = 'Введите код'; return; }
-                if (!db) { alert('Ошибка сети'); return; }
-                db.ref('games/' + code).once('value', (snapshot) => {
+            function startNetworkGameListener(gameCode) {
+                if (!db) return;
+                if (networkListenerRef) networkListenerRef();
+                const ref = db.ref('games/' + gameCode);
+                networkListenerRef = ref.on('value', (snapshot) => {
                     const data = snapshot.val();
                     if (!data) {
-                        errEl.innerText = 'Комната не найдена';
+                        if (state.phase === 'play' || state.phase === 'scout' || state.phase === 'waiting_for_player') {
+                            alert('Комната удалена. Игра завершена.');
+                            resetEntireSystem();
+                        }
                         return;
                     }
-                    if (data.status !== 'setup_white_done' && data.status !== 'waiting') {
-                        errEl.innerText = 'Комната уже не доступна для подключения';
-                        return;
-                    }
-                    if (!data.whiteSetup) {
-                        errEl.innerText = 'Создатель еще не настроил фигуры, подождите...';
-                        return;
-                    }
-                    networkGameId = code;
-                    networkPlayerRole = 'joiner';
-                    playerColor = 'black';
-                    state.whiteSetup = data.whiteSetup.slice();
-                    startNetworkGameListener(code);
-                    state.phase = 'setup_black';
-                    renderSetupScreen('black');
-                });
-            };
-            document.getElementById('join-back').onclick = renderMenuScreen;
-        }
-
-        function createNetworkRoom() {
-            if (!db) { alert('Ошибка сети'); return; }
-            networkGameId = String(Math.floor(10000 + Math.random() * 90000));
-            networkPlayerRole = 'creator';
-            playerColor = 'white';
-            db.ref('games/' + networkGameId).set({
-                status: 'waiting',
-                creatorId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'anonymous'
-            });
-            startNetworkGameListener(networkGameId);
-            state.phase = 'setup_white';
-            renderSetupScreen('white');
-        }
-
-        function renderOptionsScreen() {
-            state.phase = 'options';
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            app.innerHTML = `
-                <div class="title">♔ Victory Chess</div>
-                <div class="subtitle">Параметры матча с компьютером</div>
-                <div class="menu-container">
-                    <div style="color:#aaa; font-size:14px;">Сложность бота:</div>
-                    <div class="options-group" id="d-group">
-                        <button class="btn-opt ${difficulty==='novice'?'selected':''}" data-v="novice">Новичок</button>
-                        <button class="btn-opt ${difficulty==='intermediate'?'selected':''}" data-v="intermediate">Опытный</button>
-                        <button class="btn-opt ${difficulty==='grandmaster'?'selected':''}" data-v="grandmaster">Гроссмейстер</button>
-                    </div>
-                    <div style="color:#aaa; font-size:14px; margin-top:8px;">Ваш цвет:</div>
-                    <div class="options-group" id="c-group">
-                        <button class="btn-opt ${playerColor==='white'?'selected':''}" data-v="white">⚪ Белые</button>
-                        <button class="btn-opt ${playerColor==='black'?'selected':''}" data-v="black">⚫ Чёрные</button>
-                    </div>
-                    <button class="btn-start-rules" id="opts-go" style="margin-top:20px; font-size:18px;">В кузницу сетапов</button>
-                </div>
-            `;
-            document.querySelectorAll('#d-group .btn-opt').forEach(b => b.onclick = function() {
-                difficulty = this.dataset.v;
-                renderOptionsScreen();
-            });
-            document.querySelectorAll('#c-group .btn-opt').forEach(b => b.onclick = function() {
-                playerColor = this.dataset.v;
-                renderOptionsScreen();
-            });
-            document.getElementById('opts-go').onclick = () => {
-                state.phase = 'setup_' + playerColor;
-                renderSetupScreen(playerColor);
-            };
-        }
-
-        function renderSetupScreen(side) {
-            state.phase = 'setup_' + side;
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            const isWhite = (side === 'white');
-            const setup = isWhite ? state.whiteSetup : state.blackSetup;
-            const validInfo = validateArrayRules(setup, isWhite);
-            const invFlags = getCellInvalidFlags(setup, isWhite);
-
-            app.innerHTML = `
-                <div class="title">♔ Victory Chess</div>
-                <div class="subtitle">Сборка для ${isWhite ? 'Белых' : 'Черных'}</div>
-                <div class="setup-area">
-                    <div class="board-setup" id="s-board"></div>
-                    <div class="piece-palette" id="s-palette"></div>
-                    <div class="status-bar">${validInfo.valid ? '<span class="valid">✓ Позиция валидна</span>' : `⚠ ${validInfo.reason}`}</div>
-                    <div class="flex-row">
-                        <button class="btn btn-danger" id="s-clear">Сброс</button>
-                        <button class="btn btn-random" id="s-rand">🎲 Vic-Choice</button>
-                        <button class="btn btn-success" id="s-next" ${!validInfo.valid ? 'disabled' : ''}>Готово</button>
-                    </div>
-                </div>
-            `;
-
-            const sBoard = document.getElementById('s-board');
-            sBoard.innerHTML = '';
-            for (let i = 0; i < 8; i++) {
-                const cell = document.createElement('div');
-                cell.className = `setup-cell ${(i % 2 === 0) ? 'light' : 'dark'} ${invFlags[i] ? 'invalid' : ''}`;
-                if (setup[i]) {
-                    cell.innerHTML = `<span class="piece ${isWhite ? 'white' : 'black'}">${SYM[setup[i]]}</span>`;
-                }
-                cell.onclick = () => {
-                    if (state.selectedPiece) {
-                        setup[i] = state.selectedPiece;
-                        state.selectedPiece = null;
-                    } else {
-                        setup[i] = null;
-                    }
-                    renderSetupScreen(side);
-                };
-                sBoard.appendChild(cell);
-            }
-
-            const sPalette = document.getElementById('s-palette');
-            sPalette.innerHTML = '';
-            const counts = {};
-            setup.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
-            Object.keys(TOTAL_NEEDED).forEach(p => {
-                const b = document.createElement('button');
-                b.className = `piece-btn ${isWhite ? 'white-piece' : 'black-piece'} ${state.selectedPiece === p ? 'selected' : ''}`;
-                b.innerText = SYM[p];
-                if ((counts[p] || 0) >= TOTAL_NEEDED[p]) b.disabled = true;
-                b.onclick = () => { state.selectedPiece = (state.selectedPiece === p) ? null : p; renderSetupScreen(side); };
-                sPalette.appendChild(b);
-            });
-
-            document.getElementById('s-clear').onclick = () => {
-                setup.fill(null);
-                state.selectedPiece = null;
-                renderSetupScreen(side);
-            };
-            document.getElementById('s-rand').onclick = () => {
-                const r = generateValidRandomSetup(isWhite);
-                for (let i = 0; i < 8; i++) setup[i] = r[i];
-                state.selectedPiece = null;
-                renderSetupScreen(side);
-            };
-            document.getElementById('s-next').onclick = () => {
-                if (gameMode === 'bot') {
-                    if (playerColor === 'white') state.blackSetup = generateValidRandomSetup(false);
-                    else state.whiteSetup = generateValidRandomSetup(true);
-                    launchScoutPhase();
-                } else if (gameMode === 'network') {
-                    if (networkPlayerRole === 'creator') {
-                        if (!db) { alert('Ошибка сети'); return; }
-                        db.ref('games/' + networkGameId).update({ whiteSetup: state.whiteSetup, status: 'setup_white_done' });
-                        state.phase = 'waiting_for_player';
-                        renderWaitingScreen();
-                    } else if (networkPlayerRole === 'joiner') {
-                        if (!db) { alert('Ошибка сети'); return; }
-                        db.ref('games/' + networkGameId).update({ blackSetup: state.blackSetup, status: 'ready' });
+                    if (state.phase === 'waiting_for_player' && data.status === 'ready') {
+                        state.blackSetup = data.blackSetup;
                         initBoard();
                         renderPlayScreen();
                         launchScoutPhaseAfterRender();
+                        return;
                     }
-                } else {
-                    if (side === 'white') renderSetupScreen('black');
-                    else launchScoutPhase();
-                }
-            };
-        }
-
-        function renderWaitingScreen() {
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            app.innerHTML = `
-                <div class="title">♔ Victory Chess</div>
-                <div class="subtitle">Ожидание соперника</div>
-                <div class="menu-container">
-                    <p style="text-align:center; font-size:16px; color:#aaa; margin-bottom:15px;">Сообщите этот код другу:</p>
-                    <h1 style="font-size:44px; color:#8a2be2; letter-spacing:4px; margin-bottom:20px;">${networkGameId}</h1>
-                    <div class="flex-row">
-                        <button class="btn btn-primary" id="invite-btn">✉ Пригласить друга</button>
-                        <button class="btn btn-danger" id="waiting-cancel">Отменить</button>
-                    </div>
-                </div>
-            `;
-            document.getElementById('invite-btn').onclick = function() {
-                const botName = 'vicrorychessbot';
-                if (window.Telegram?.WebApp) {
-                    window.Telegram.WebApp.openTelegramLink(`https://t.me/${botName}?start=room_${networkGameId}`);
-                } else {
-                    alert('Telegram WebApp не доступен. Скопируйте код вручную: ' + networkGameId);
-                }
-            };
-            document.getElementById('waiting-cancel').onclick = function() {
-                if (db && networkGameId) {
-                    db.ref('games/' + networkGameId).remove();
-                    if (networkListenerRef) networkListenerRef();
-                    networkListenerRef = null;
-                }
-                resetEntireSystem();
-            };
-        }
-
-        function launchScoutPhase() {
-            state.phase = 'scout';
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            state.scoutTimer = 15;
-            initBoard();
-            renderPlayScreen();
-            if (gameMode === 'network' && db) {
-                startNetworkGameListener(networkGameId);
+                    if (networkPlayerRole === 'joiner' && state.phase === 'setup_black' && data.whiteSetup) {
+                        state.whiteSetup = data.whiteSetup;
+                    }
+                    if (state.phase === 'play' || state.phase === 'scout') {
+                        if (data.moveLog && data.moveLog.length > state.moveLog.length) {
+                            state.board = data.board;
+                            state.turn = data.turn;
+                            state.moveLog = data.moveLog;
+                            state.kingMoved = data.kingMoved;
+                            state.rooksMoved = data.rooksMoved;
+                            renderPlayScreen();
+                        }
+                        if (data.gameOver && !state.gameOver) {
+                            state.gameOver = true;
+                            if (data.winner === 'draw') alert('Матч завершен вничью!');
+                            else alert(`Игра окончена! Победили ${data.winner === 'white' ? 'Белые' : 'Черные'}`);
+                        }
+                    }
+                });
             }
-            startScoutTimer();
-        }
 
-        function launchScoutPhaseAfterRender() {
-            state.phase = 'scout';
-            const tg = window.Telegram?.WebApp;
-            updateTgBackButton(tg);
-            state.scoutTimer = 15;
-            if (gameMode === 'network' && db) {
-                startNetworkGameListener(networkGameId);
-            }
-            startScoutTimer();
-        }
-
-        function startScoutTimer() {
-            if (scoutInterval) clearInterval(scoutInterval);
-            scoutInterval = setInterval(() => {
-                state.scoutTimer--;
-                const clock = document.getElementById('s-overlay-clock');
-                if (clock) clock.innerText = state.scoutTimer;
-                if (state.scoutTimer <= 0) {
-                    clearInterval(scoutInterval);
-                    const overlay = document.getElementById('scout-overlay');
-                    if (overlay) overlay.remove();
-                    state.phase = 'play';
-                    startMatchClock();
-                }
-            }, 1000);
-        }
-
-        function renderPlayScreen() {
-            const activeColorLabel = state.turn === 'white' ? 'Белые' : 'Черные';
-            let overlayHtml = '';
-            if (state.phase === 'scout') {
-                overlayHtml = `
-                    <div id="scout-overlay" class="vic-scan-overlay">
-                        <div class="vic-scan-title">АНАЛИЗ ПОЛЯ</div>
-                        <div class="vic-scan-timer" id="s-overlay-clock">${state.scoutTimer}</div>
+            function renderRulesScreen() {
+                state.phase = 'rules';
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                app.innerHTML = `
+                    <div class="title">♔ Victory Chess</div>
+                    <div class="subtitle">Посвящается дедушке Виктору</div>
+                    <div class="rules-container">
+                        <h2>ПРАВИЛА ИГРЫ</h2>
+                        <ul>
+                            <li><span class="highlight">Декбилдинг дебюта:</span> Перед игрой вы сами настраиваете стартовый ряд ваших главных фигур. Всего существует <span class="highlight">576</span> уникальных валидных комбинаций!</li>
+                            <li><span class="highlight">Условия баланса:</span> Король всегда обязан стоять где-то между двумя ладьями. Кони и Слоны должны стоять на разных цветах попарно.</li>
+                            <li><span class="highlight">Анализ поля:</span> Игра начинается вслепую. После открытия досок дается 15 секунд на изучение позиций соперника, во время которых нельзя ходить.</li>
+                        </ul>
+                        <div class="btn-wrap">
+                            <button class="btn-start-rules" id="r-next">В главное меню</button>
+                        </div>
                     </div>
                 `;
+                document.getElementById('r-next').onclick = renderMenuScreen;
             }
 
-            app.innerHTML = `
-                <div class="title">♔ Victory Chess</div>
-                <div class="game-layout">
-                    <div class="board-wrapper">
-                        ${overlayHtml}
-                        <div class="board-status">
-                            <div class="turn-box">
-                                <span class="turn-bullet ${state.turn === 'white' ? 'bullet-white' : 'bullet-black'}"></span>
-                                <span>${state.gameOver ? 'Конец матча' : `Ход: ${activeColorLabel}`}</span>
-                            </div>
-                            <span class="timer" id="game-clock">00:00</span>
-                        </div>
-                        <div class="board" id="main-board"></div>
+            function renderMenuScreen() {
+                state.phase = 'menu';
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                app.innerHTML = `
+                    <div class="title">♔ Victory Chess</div>
+                    <div class="subtitle">Тактический декбилдинг до первого хода</div>
+                    <div class="menu-container">
+                        <button class="btn btn-menu" id="m-pve">🤖 Одиночная игра против ИИ</button>
+                        <button class="btn btn-menu" id="m-create">🆕 Создать комнату</button>
+                        <button class="btn btn-menu" id="m-join">🔗 Подключиться к комнате</button>
+                        <button class="btn btn-menu" id="m-pvp">👥 На двоих (За одним экраном)</button>
                     </div>
-                    <div class="side-panel">
-                        <div class="panel-title">📋 Лог матча</div>
-                        <div class="move-log" id="g-log"></div>
-                    </div>
-                </div>
-            `;
+                `;
+                document.getElementById('m-pve').onclick = () => { gameMode = 'bot'; renderOptionsScreen(); };
+                document.getElementById('m-create').onclick = createNetworkRoom;
+                document.getElementById('m-join').onclick = renderJoinScreen;
+                document.getElementById('m-pvp').onclick = () => { gameMode = 'multi'; state.phase = 'setup_white'; renderSetupScreen('white'); };
+            }
 
-            const mBoard = document.getElementById('main-board');
-            const invert = (gameMode === 'bot' && playerColor === 'black') || (gameMode === 'network' && networkPlayerRole === 'joiner');
-            for (let rIndex = 0; rIndex < 8; rIndex++) {
-                for (let cIndex = 0; cIndex < 8; cIndex++) {
-                    const r = invert ? rIndex : 7 - rIndex;
-                    const c = invert ? 7 - cIndex : cIndex;
+            function renderJoinScreen() {
+                state.phase = 'join';
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                app.innerHTML = `
+                    <div class="title">♔ Victory Chess</div>
+                    <div class="subtitle">Введите код комнаты друга</div>
+                    <div class="menu-container">
+                        <input id="room-code-input" type="text" maxlength="5" placeholder="Например: 12345">
+                        <div class="flex-row">
+                            <button class="btn btn-primary" id="join-connect">Подключиться</button>
+                            <button class="btn" id="join-back">Назад</button>
+                        </div>
+                        <div id="join-error" style="color:#ef4444; margin-top:10px;"></div>
+                    </div>
+                `;
+                document.getElementById('join-connect').onclick = function() {
+                    const code = document.getElementById('room-code-input').value.trim();
+                    const errEl = document.getElementById('join-error');
+                    if (!code) { errEl.innerText = 'Введите код'; return; }
+                    if (!db) { alert('Ошибка сети'); return; }
+                    db.ref('games/' + code).once('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data) {
+                            errEl.innerText = 'Комната не найдена';
+                            return;
+                        }
+                        if (data.status !== 'setup_white_done' && data.status !== 'waiting') {
+                            errEl.innerText = 'Комната уже не доступна для подключения';
+                            return;
+                        }
+                        if (!data.whiteSetup) {
+                            errEl.innerText = 'Создатель еще не настроил фигуры, подождите...';
+                            return;
+                        }
+                        networkGameId = code;
+                        networkPlayerRole = 'joiner';
+                        playerColor = 'black';
+                        state.whiteSetup = data.whiteSetup.slice();
+                        startNetworkGameListener(code);
+                        state.phase = 'setup_black';
+                        renderSetupScreen('black');
+                    });
+                };
+                document.getElementById('join-back').onclick = renderMenuScreen;
+            }
+
+            function createNetworkRoom() {
+                if (!db) { alert('Ошибка сети'); return; }
+                networkGameId = String(Math.floor(10000 + Math.random() * 90000));
+                networkPlayerRole = 'creator';
+                playerColor = 'white';
+                db.ref('games/' + networkGameId).set({
+                    status: 'waiting',
+                    creatorId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'anonymous'
+                });
+                startNetworkGameListener(networkGameId);
+                state.phase = 'waiting_for_player';
+                renderWaitingScreen();
+            }
+
+            function renderOptionsScreen() {
+                state.phase = 'options';
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                app.innerHTML = `
+                    <div class="title">♔ Victory Chess</div>
+                    <div class="subtitle">Параметры матча с компьютером</div>
+                    <div class="menu-container">
+                        <div style="color:#aaa; font-size:14px;">Сложность бота:</div>
+                        <div class="options-group" id="d-group">
+                            <button class="btn-opt ${difficulty==='novice'?'selected':''}" data-v="novice">Новичок</button>
+                            <button class="btn-opt ${difficulty==='intermediate'?'selected':''}" data-v="intermediate">Опытный</button>
+                            <button class="btn-opt ${difficulty==='grandmaster'?'selected':''}" data-v="grandmaster">Гроссмейстер</button>
+                        </div>
+                        <div style="color:#aaa; font-size:14px; margin-top:8px;">Ваш цвет:</div>
+                        <div class="options-group" id="c-group">
+                            <button class="btn-opt ${playerColor==='white'?'selected':''}" data-v="white">⚪ Белые</button>
+                            <button class="btn-opt ${playerColor==='black'?'selected':''}" data-v="black">⚫ Чёрные</button>
+                        </div>
+                        <button class="btn-start-rules" id="opts-go" style="margin-top:20px; font-size:18px;">В кузницу сетапов</button>
+                    </div>
+                `;
+                document.querySelectorAll('#d-group .btn-opt').forEach(b => b.onclick = function() {
+                    difficulty = this.dataset.v;
+                    renderOptionsScreen();
+                });
+                document.querySelectorAll('#c-group .btn-opt').forEach(b => b.onclick = function() {
+                    playerColor = this.dataset.v;
+                    renderOptionsScreen();
+                });
+                document.getElementById('opts-go').onclick = () => {
+                    state.phase = 'setup_' + playerColor;
+                    renderSetupScreen(playerColor);
+                };
+            }
+
+            function renderSetupScreen(side) {
+                state.phase = 'setup_' + side;
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                const isWhite = (side === 'white');
+                const setup = isWhite ? state.whiteSetup : state.blackSetup;
+                const validInfo = validateArrayRules(setup, isWhite);
+                const invFlags = getCellInvalidFlags(setup, isWhite);
+
+                app.innerHTML = `
+                    <div class="title">♔ Victory Chess</div>
+                    <div class="subtitle">Сборка для ${isWhite ? 'Белых' : 'Черных'}</div>
+                    <div class="setup-area">
+                        <div class="board-setup" id="s-board"></div>
+                        <div class="piece-palette" id="s-palette"></div>
+                        <div class="status-bar">${validInfo.valid ? '<span class="valid">✓ Позиция валидна</span>' : `⚠ ${validInfo.reason}`}</div>
+                        <div class="flex-row">
+                            <button class="btn btn-danger" id="s-clear">Сброс</button>
+                            <button class="btn btn-random" id="s-rand">🎲 Vic-Choice</button>
+                            <button class="btn btn-success" id="s-next" ${!validInfo.valid ? 'disabled' : ''}>Готово</button>
+                        </div>
+                    </div>
+                `;
+
+                const sBoard = document.getElementById('s-board');
+                sBoard.innerHTML = '';
+                for (let i = 0; i < 8; i++) {
                     const cell = document.createElement('div');
-                    cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
-                    if (state.selected && state.selected.row === r && state.selected.col === c) {
-                        cell.classList.add('selected');
-                    }
-                    const possible = state.possibleMoves.find(m => m.row === r && m.col === c);
-                    if (possible) {
-                        cell.classList.add(possible.isCapture || possible.castling ? 'highlight-capture' : 'highlight');
-                    }
-                    const piece = state.board[r][c];
-                    if (piece) {
-                        cell.innerHTML = `<span class="piece ${piece.color}">${SYM[piece.type]}</span>`;
+                    cell.className = `setup-cell ${(i % 2 === 0) ? 'light' : 'dark'} ${invFlags[i] ? 'invalid' : ''}`;
+                    if (setup[i]) {
+                        cell.innerHTML = `<span class="piece ${isWhite ? 'white' : 'black'}">${SYM[setup[i]]}</span>`;
                     }
                     cell.onclick = () => {
-                        if (state.phase === 'scout' || state.gameOver || state.isProcessingMove) return;
-                        if (gameMode === 'network') {
-                            if (networkPlayerRole === 'creator' && state.turn !== 'white') return;
-                            if (networkPlayerRole === 'joiner' && state.turn !== 'black') return;
-                        }
-                        if (gameMode === 'bot' && state.turn !== playerColor) return;
-                        if (possible && state.selected) {
-                            commitMove(state.selected.row, state.selected.col, r, c, possible.castling);
-                        } else if (piece && piece.color === state.turn) {
-                            state.selected = { row: r, col: c };
-                            state.possibleMoves = getLegalMoves(state.board, r, c);
-                            renderPlayScreen();
+                        if (state.selectedPiece) {
+                            setup[i] = state.selectedPiece;
+                            state.selectedPiece = null;
                         } else {
-                            state.selected = null;
-                            state.possibleMoves = [];
-                            renderPlayScreen();
+                            setup[i] = null;
                         }
+                        renderSetupScreen(side);
                     };
-                    mBoard.appendChild(cell);
+                    sBoard.appendChild(cell);
                 }
-            }
 
-            const logBox = document.getElementById('g-log');
-            logBox.innerHTML = '';
-            state.moveLog.forEach((m, idx) => {
-                logBox.innerHTML += `<div class="move-entry">${idx+1}. [${m.color === 'white' ? 'Бел' : 'Чер'}] ${m.text}</div>`;
-            });
-            logBox.scrollTop = logBox.scrollHeight;
-
-            if (gameMode === 'bot' && state.turn !== playerColor && state.phase === 'play') {
-                triggerAIResponse();
-            }
-        }
-
-        function startMatchClock() {
-            if (timerInterval) clearInterval(timerInterval);
-            state.elapsedSeconds = 0;
-            timerInterval = setInterval(() => {
-                state.elapsedSeconds++;
-                const clock = document.getElementById('game-clock');
-                if (clock) {
-                    const m = String(Math.floor(state.elapsedSeconds / 60)).padStart(2, '0');
-                    const s = String(state.elapsedSeconds % 60).padStart(2, '0');
-                    clock.innerText = `${m}:${s}`;
-                }
-            }, 1000);
-        }
-
-        function checkIncomingInvite() {
-            const tg = window.Telegram?.WebApp;
-            const startParam = tg?.initDataUnsafe?.start_param;
-            if (startParam && typeof startParam === 'string' && startParam.startsWith('room_')) {
-                const roomCode = startParam.replace('room_', '');
-                gameMode = 'network';
-                networkGameId = roomCode;
-                networkPlayerRole = 'joiner';
-                playerColor = 'black';
-                if (!db) { alert('Ошибка сети.'); return true; }
-                db.ref('games/' + roomCode).once('value', (snapshot) => {
-                    const data = snapshot.val();
-                    if (data && (data.status === 'waiting' || data.status === 'setup_white_done')) {
-                        state.phase = 'setup_black';
-                        renderSetupScreen('black');
-                        startNetworkGameListener(roomCode);
-                    } else {
-                        alert('Комната не найдена или игра уже началась.');
-                        renderMenuScreen();
-                    }
+                const sPalette = document.getElementById('s-palette');
+                sPalette.innerHTML = '';
+                const counts = {};
+                setup.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
+                Object.keys(TOTAL_NEEDED).forEach(p => {
+                    const b = document.createElement('button');
+                    b.className = `piece-btn ${isWhite ? 'white-piece' : 'black-piece'} ${state.selectedPiece === p ? 'selected' : ''}`;
+                    b.innerText = SYM[p];
+                    if ((counts[p] || 0) >= TOTAL_NEEDED[p]) b.disabled = true;
+                    b.onclick = () => { state.selectedPiece = (state.selectedPiece === p) ? null : p; renderSetupScreen(side); };
+                    sPalette.appendChild(b);
                 });
-                return true;
-            }
-            const urlParams = new URLSearchParams(window.location.search);
-            const roomCodeFallback = urlParams.get('room');
-            if (roomCodeFallback) {
-                gameMode = 'network';
-                networkGameId = roomCodeFallback;
-                networkPlayerRole = 'joiner';
-                playerColor = 'black';
-                if (!db) { alert('Ошибка сети'); return true; }
-                db.ref('games/' + roomCodeFallback).once('value', (snapshot) => {
-                    const data = snapshot.val();
-                    if (data && (data.status === 'waiting' || data.status === 'setup_white_done')) {
-                        state.phase = 'setup_black';
-                        renderSetupScreen('black');
-                        startNetworkGameListener(roomCodeFallback);
-                    } else {
-                        alert('Комната не найдена или игра уже началась.');
-                        renderMenuScreen();
-                    }
-                });
-                return true;
-            }
-            return false;
-        }
 
-        function resetEntireSystem() {
-            clearInterval(timerInterval);
-            clearInterval(scoutInterval);
-            if (networkListenerRef) {
-                networkListenerRef();
-                networkListenerRef = null;
-            }
-            state.whiteSetup.fill(null);
-            state.blackSetup.fill(null);
-            state.selectedPiece = null;
-            state.selected = null;
-            state.possibleMoves = [];
-            state.gameOver = false;
-            state.isProcessingMove = false;
-            networkGameId = null;
-            networkPlayerRole = null;
-            renderMenuScreen();
-        }
-
-        // ---------- ИНИЦИАЛИЗАЦИЯ ----------
-        function init() {
-            const tg = window.Telegram?.WebApp;
-            if (tg) {
-                tg.ready();
-                tg.expand();
-            }
-
-            try {
-                const firebaseConfig = {
-                    databaseURL: "https://victory-chess-e0831-default-rtdb.firebaseio.com/"
+                document.getElementById('s-clear').onclick = () => {
+                    setup.fill(null);
+                    state.selectedPiece = null;
+                    renderSetupScreen(side);
                 };
-                if (typeof firebase !== 'undefined' && !firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
-                    db = firebase.database();
-                } else if (typeof firebase !== 'undefined' && firebase.apps.length) {
-                    db = firebase.database();
-                } else {
-                    alert('Ошибка: Firebase не загружен. Проверьте подключение к интернету.');
+                document.getElementById('s-rand').onclick = () => {
+                    const r = generateValidRandomSetup(isWhite);
+                    for (let i = 0; i < 8; i++) setup[i] = r[i];
+                    state.selectedPiece = null;
+                    renderSetupScreen(side);
+                };
+                document.getElementById('s-next').onclick = () => {
+                    if (gameMode === 'bot') {
+                        if (playerColor === 'white') state.blackSetup = generateValidRandomSetup(false);
+                        else state.whiteSetup = generateValidRandomSetup(true);
+                        launchScoutPhase();
+                    } else if (gameMode === 'network') {
+                        if (networkPlayerRole === 'creator') {
+                            if (!db) { alert('Ошибка сети'); return; }
+                            db.ref('games/' + networkGameId).update({ whiteSetup: state.whiteSetup, status: 'setup_white_done' });
+                            state.phase = 'waiting_for_player';
+                            renderWaitingScreen();
+                        } else if (networkPlayerRole === 'joiner') {
+                            if (!db) { alert('Ошибка сети'); return; }
+                            db.ref('games/' + networkGameId).update({ blackSetup: state.blackSetup, status: 'ready' });
+                            initBoard();
+                            renderPlayScreen();
+                            launchScoutPhaseAfterRender();
+                        }
+                    } else {
+                        if (side === 'white') renderSetupScreen('black');
+                        else launchScoutPhase();
+                    }
+                };
+            }
+
+            function renderWaitingScreen() {
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                app.innerHTML = `
+                    <div class="title">♔ Victory Chess</div>
+                    <div class="subtitle">Ожидание соперника</div>
+                    <div class="menu-container">
+                        <p style="text-align:center; font-size:16px; color:#aaa; margin-bottom:15px;">Сообщите этот код другу:</p>
+                        <h1 style="font-size:44px; color:#8a2be2; letter-spacing:4px; margin-bottom:20px;">${networkGameId}</h1>
+                        <div class="flex-row">
+                            <button class="btn btn-primary" id="invite-btn">✉ Пригласить друга</button>
+                            <button class="btn btn-danger" id="waiting-cancel">Отменить</button>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('invite-btn').onclick = function() {
+                    const botName = 'vicrorychessbot';
+                    if (window.Telegram?.WebApp) {
+                        window.Telegram.WebApp.openTelegramLink(`https://t.me/${botName}?start=room_${networkGameId}`);
+                    } else {
+                        alert('Telegram WebApp не доступен. Скопируйте код вручную: ' + networkGameId);
+                    }
+                };
+                document.getElementById('waiting-cancel').onclick = function() {
+                    if (db && networkGameId) {
+                        db.ref('games/' + networkGameId).remove();
+                        if (networkListenerRef) networkListenerRef();
+                        networkListenerRef = null;
+                    }
+                    resetEntireSystem();
+                };
+            }
+
+            function launchScoutPhase() {
+                state.phase = 'scout';
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                state.scoutTimer = 15;
+                initBoard();
+                renderPlayScreen();
+                if (gameMode === 'network' && db) {
+                    startNetworkGameListener(networkGameId);
+                }
+                startScoutTimer();
+            }
+
+            function launchScoutPhaseAfterRender() {
+                state.phase = 'scout';
+                const tg = window.Telegram?.WebApp;
+                updateTgBackButton(tg);
+                state.scoutTimer = 15;
+                if (gameMode === 'network' && db) {
+                    startNetworkGameListener(networkGameId);
+                }
+                startScoutTimer();
+            }
+
+            function startScoutTimer() {
+                if (scoutInterval) clearInterval(scoutInterval);
+                scoutInterval = setInterval(() => {
+                    state.scoutTimer--;
+                    const clock = document.getElementById('s-overlay-clock');
+                    if (clock) clock.innerText = state.scoutTimer;
+                    if (state.scoutTimer <= 0) {
+                        clearInterval(scoutInterval);
+                        const overlay = document.getElementById('scout-overlay');
+                        if (overlay) overlay.remove();
+                        state.phase = 'play';
+                        startMatchClock();
+                    }
+                }, 1000);
+            }
+
+            function renderPlayScreen() {
+                const activeColorLabel = state.turn === 'white' ? 'Белые' : 'Черные';
+                let overlayHtml = '';
+                if (state.phase === 'scout') {
+                    overlayHtml = `
+                        <div id="scout-overlay" class="vic-scan-overlay">
+                            <div class="vic-scan-title">АНАЛИЗ ПОЛЯ</div>
+                            <div class="vic-scan-timer" id="s-overlay-clock">${state.scoutTimer}</div>
+                        </div>
+                    `;
+                }
+
+                app.innerHTML = `
+                    <div class="title">♔ Victory Chess</div>
+                    <div class="game-layout">
+                        <div class="board-wrapper">
+                            ${overlayHtml}
+                            <div class="board-status">
+                                <div class="turn-box">
+                                    <span class="turn-bullet ${state.turn === 'white' ? 'bullet-white' : 'bullet-black'}"></span>
+                                    <span>${state.gameOver ? 'Конец матча' : `Ход: ${activeColorLabel}`}</span>
+                                </div>
+                                <span class="timer" id="game-clock">00:00</span>
+                            </div>
+                            <div class="board" id="main-board"></div>
+                        </div>
+                        <div class="side-panel">
+                            <div class="panel-title">📋 Лог матча</div>
+                            <div class="move-log" id="g-log"></div>
+                        </div>
+                    </div>
+                `;
+
+                const mBoard = document.getElementById('main-board');
+                const invert = (gameMode === 'bot' && playerColor === 'black') || (gameMode === 'network' && networkPlayerRole === 'joiner');
+                for (let rIndex = 0; rIndex < 8; rIndex++) {
+                    for (let cIndex = 0; cIndex < 8; cIndex++) {
+                        const r = invert ? rIndex : 7 - rIndex;
+                        const c = invert ? 7 - cIndex : cIndex;
+                        const cell = document.createElement('div');
+                        cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+                        if (state.selected && state.selected.row === r && state.selected.col === c) {
+                            cell.classList.add('selected');
+                        }
+                        const possible = state.possibleMoves.find(m => m.row === r && m.col === c);
+                        if (possible) {
+                            cell.classList.add(possible.isCapture || possible.castling ? 'highlight-capture' : 'highlight');
+                        }
+                        const piece = state.board[r][c];
+                        if (piece) {
+                            cell.innerHTML = `<span class="piece ${piece.color}">${SYM[piece.type]}</span>`;
+                        }
+                        cell.onclick = () => {
+                            if (state.phase === 'scout' || state.gameOver || state.isProcessingMove) return;
+                            if (gameMode === 'network') {
+                                if (networkPlayerRole === 'creator' && state.turn !== 'white') return;
+                                if (networkPlayerRole === 'joiner' && state.turn !== 'black') return;
+                            }
+                            if (gameMode === 'bot' && state.turn !== playerColor) return;
+                            if (possible && state.selected) {
+                                commitMove(state.selected.row, state.selected.col, r, c, possible.castling);
+                            } else if (piece && piece.color === state.turn) {
+                                state.selected = { row: r, col: c };
+                                state.possibleMoves = getLegalMoves(state.board, r, c);
+                                renderPlayScreen();
+                            } else {
+                                state.selected = null;
+                                state.possibleMoves = [];
+                                renderPlayScreen();
+                            }
+                        };
+                        mBoard.appendChild(cell);
+                    }
+                }
+
+                const logBox = document.getElementById('g-log');
+                logBox.innerHTML = '';
+                state.moveLog.forEach((m, idx) => {
+                    logBox.innerHTML += `<div class="move-entry">${idx+1}. [${m.color === 'white' ? 'Бел' : 'Чер'}] ${m.text}</div>`;
+                });
+                logBox.scrollTop = logBox.scrollHeight;
+
+                if (gameMode === 'bot' && state.turn !== playerColor && state.phase === 'play') {
+                    triggerAIResponse();
+                }
+            }
+
+            function startMatchClock() {
+                if (timerInterval) clearInterval(timerInterval);
+                state.elapsedSeconds = 0;
+                timerInterval = setInterval(() => {
+                    state.elapsedSeconds++;
+                    const clock = document.getElementById('game-clock');
+                    if (clock) {
+                        const m = String(Math.floor(state.elapsedSeconds / 60)).padStart(2, '0');
+                        const s = String(state.elapsedSeconds % 60).padStart(2, '0');
+                        clock.innerText = `${m}:${s}`;
+                    }
+                }, 1000);
+            }
+
+            function checkIncomingInvite() {
+                const tg = window.Telegram?.WebApp;
+                const startParam = tg?.initDataUnsafe?.start_param;
+                if (startParam && typeof startParam === 'string' && startParam.startsWith('room_')) {
+                    const roomCode = startParam.replace('room_', '');
+                    gameMode = 'network';
+                    networkGameId = roomCode;
+                    networkPlayerRole = 'joiner';
+                    playerColor = 'black';
+                    if (!db) { alert('Ошибка сети.'); return true; }
+                    db.ref('games/' + roomCode).once('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (data && (data.status === 'waiting' || data.status === 'setup_white_done')) {
+                            state.phase = 'setup_black';
+                            renderSetupScreen('black');
+                            startNetworkGameListener(roomCode);
+                        } else {
+                            alert('Комната не найдена или игра уже началась.');
+                            renderMenuScreen();
+                        }
+                    });
+                    return true;
+                }
+                const urlParams = new URLSearchParams(window.location.search);
+                const roomCodeFallback = urlParams.get('room');
+                if (roomCodeFallback) {
+                    gameMode = 'network';
+                    networkGameId = roomCodeFallback;
+                    networkPlayerRole = 'joiner';
+                    playerColor = 'black';
+                    if (!db) { alert('Ошибка сети'); return true; }
+                    db.ref('games/' + roomCodeFallback).once('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (data && (data.status === 'waiting' || data.status === 'setup_white_done')) {
+                            state.phase = 'setup_black';
+                            renderSetupScreen('black');
+                            startNetworkGameListener(roomCodeFallback);
+                        } else {
+                            alert('Комната не найдена или игра уже началась.');
+                            renderMenuScreen();
+                        }
+                    });
+                    return true;
+                }
+                return false;
+            }
+
+            function resetEntireSystem() {
+                clearInterval(timerInterval);
+                clearInterval(scoutInterval);
+                if (networkListenerRef) {
+                    networkListenerRef();
+                    networkListenerRef = null;
+                }
+                state.whiteSetup.fill(null);
+                state.blackSetup.fill(null);
+                state.selectedPiece = null;
+                state.selected = null;
+                state.possibleMoves = [];
+                state.gameOver = false;
+                state.isProcessingMove = false;
+                networkGameId = null;
+                networkPlayerRole = null;
+                renderMenuScreen();
+            }
+
+            function init() {
+                const tg = window.Telegram?.WebApp;
+                if (tg) {
+                    tg.ready();
+                    tg.expand();
+                }
+
+                try {
+                    const firebaseConfig = {
+                        databaseURL: "https://victory-chess-e0831-default-rtdb.firebaseio.com/"
+                    };
+                    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                        db = firebase.database();
+                    } else if (typeof firebase !== 'undefined' && firebase.apps.length) {
+                        db = firebase.database();
+                    } else {
+                        alert('Ошибка: Firebase не загружен. Проверьте подключение к интернету.');
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Firebase init error:', error);
+                    alert('Ошибка подключения к серверу. Пожалуйста, перезапустите приложение.');
                     return;
                 }
-            } catch (error) {
-                console.error('Firebase init error:', error);
-                alert('Ошибка подключения к серверу. Пожалуйста, перезапустите приложение.');
-                return;
+
+                if (!checkIncomingInvite()) {
+                    renderRulesScreen();
+                }
             }
 
-            if (!checkIncomingInvite()) {
-                renderRulesScreen();
+            window.TgChess = { init };
+        })();
+
+        window.onload = function() {
+            if (window.TgChess && typeof window.TgChess.init === 'function') {
+                window.TgChess.init();
             }
-        }
-
-        window.TgChess = { init };
-    })();
-
-    window.onload = function() {
-        if (window.TgChess && typeof window.TgChess.init === 'function') {
-            window.TgChess.init();
-        }
-    };
-</script>
+        };
+    </script>
 </body>
 </html>
 ```
