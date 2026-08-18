@@ -59,18 +59,18 @@
         .setup-area { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; max-width: 600px; background: var(--tg-theme-secondary-bg-color, #1a1a1e); padding: 24px; border-radius: 12px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); }
         .board-setup { display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 8 / 1; width: 100%; background: var(--tg-theme-bg-color, #121214); border-radius: 8px; overflow: hidden; border: 2px solid var(--tg-theme-hint-color, #2d2d35); }
         .setup-cell { display: flex; align-items: center; justify-content: center; font-size: clamp(24px, 5vw, 32px); aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.1s; user-select: none; position: relative; }
-        .setup-cell.light { background: #e8e0d0; color: #1a1a1e; }
-        .setup-cell.dark { background: #8b7a6b; color: #fff; }
+        .setup-cell.light { background: #e8e0d0; }
+        .setup-cell.dark { background: #8b7a6b; }
         .setup-cell.selected { box-shadow: inset 0 0 0 4px var(--tg-theme-button-color, #8a2be2); }
         .setup-cell.invalid { box-shadow: inset 0 0 0 4px #ef4444 !important; }
-        .setup-cell .piece.white { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
-        .setup-cell .piece.black { color: #000; text-shadow: 0 0 3px #fff; }
+        .setup-cell .piece img { width: 90%; height: 90%; object-fit: contain; display: block; }
         
         .piece-palette { display: flex; gap: 8px; justify-content: center; padding: 12px; width: 100%; flex-wrap: wrap; }
         .piece-btn { font-size: 28px; width: 52px; height: 52px; background: var(--tg-theme-bg-color, #25252b); border: 1px solid var(--tg-theme-hint-color, #3f3f46); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.15s; }
         .piece-btn:hover:not(:disabled) { border-color: var(--tg-theme-button-color, #8a2be2); background: var(--tg-theme-secondary-bg-color, #2d2d35); }
         .piece-btn.selected { border-color: var(--tg-theme-button-color, #8a2be2); background: #3b205c; }
         .piece-btn:disabled { opacity: 0.15; cursor: not-allowed; }
+        .piece-btn img { width: 80%; height: 80%; object-fit: contain; display: block; }
         
         .status-bar { font-size: 15px; padding: 12px; background: var(--tg-theme-bg-color, #121214); border-radius: 8px; text-align: center; width: 100%; border: 1px solid var(--tg-theme-hint-color, #2d2d35); min-height: 45px; }
         .status-bar .valid { color: #22c55e; font-weight: bold; }
@@ -119,13 +119,12 @@
             user-select: none;
         }
         .cell { display: flex; align-items: center; justify-content: center; font-size: clamp(22px, 6.5vw, 38px); aspect-ratio: 1 / 1; cursor: pointer; position: relative; }
-        .cell.light { background: #e8e0d0; color: #1a1a1e; }
-        .cell.dark { background: #8b7a6b; color: #fff; }
-        .cell.selected { background: #b91c1c !important; color: #fff !important; }
+        .cell.light { background: #e8e0d0; }
+        .cell.dark { background: #8b7a6b; }
+        .cell.selected { background: #b91c1c !important; }
         .cell.highlight::after { content: ''; width: 12px; height: 12px; background: rgba(138, 43, 226, 0.7); border-radius: 50%; position: absolute; }
         .cell.highlight-capture { box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.8) !important; }
-        .piece.white { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
-        .piece.black { color: #000; text-shadow: 0 0 3px #fff; }
+        .piece img { width: 90%; height: 90%; object-fit: contain; display: block; }
 
         .vic-scan-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -159,7 +158,21 @@
     <div class="container" id="app"></div>
     <script>
         (function() {
-            const SYM = { 'K':'♚','Q':'♛','R':'♜','B':'♝','N':'♞','P':'♟' };
+            const SYM = {
+                'wK': 'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
+                'wQ': 'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
+                'wR': 'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
+                'wB': 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
+                'wN': 'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
+                'wP': 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
+                'bK': 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
+                'bQ': 'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
+                'bR': 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Chess_rdt45.svg',
+                'bB': 'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
+                'bN': 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
+                'bP': 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg'
+            };
+
             const TOTAL_NEEDED = { 'K':1, 'Q':1, 'R':2, 'B':2, 'N':2 };
             const BASE_PIECES = ['K','Q','R','R','B','B','N','N'];
             const PIECE_VALUES = { 'P': 100, 'N': 310, 'B': 320, 'R': 500, 'Q': 900, 'K': 20000 };
@@ -293,12 +306,13 @@
                             addMove(row + dir, col);
                             if (row === start && !boardState[row + 2 * dir][col]) addMove(row + 2 * dir, col);
                         }
-                        ;[-1, 1].forEach(side => {
+                        const sides = [-1, 1];
+                        for (const side of sides) {
                             const nc = col + side;
                             if (nc >= 0 && nc <= 7 && boardState[row + dir]?.[nc]?.color === enemy) {
                                 addMove(row + dir, nc, { isCapture: true });
                             }
-                        });
+                        }
                         break;
                     }
                     case 'N': {
@@ -586,21 +600,21 @@
                 let note = '';
 
                 if (castling) {
-                    // Chess960 castling - сохраняем объекты короля и ладьи
-                    const kingObj = p;
-                    const rookObj = state.board[toR][toC]; // ладья стоит на toR,toC (это колонка ладьи)
+                    const kingColor = p.color;
                     const tk = castling === 'long' ? 2 : 6;
                     const tr = castling === 'long' ? 3 : 5;
-                    // Очищаем стартовые клетки
+                    
+                    // Полностью очищаем стартовые ячейки
                     state.board[fromR][fromC] = null;
-                    state.board[toR][toC] = null;
-                    // Ставим короля и ладью на новые места
-                    state.board[fromR][tk] = kingObj;
-                    state.board[fromR][tr] = rookObj;
+                    state.board[fromR][toC] = null;
+                    
+                    // Записываем фигуры в виде чистых плоских структур для Firebase
+                    state.board[fromR][tk] = { type: 'K', color: kingColor };
+                    state.board[fromR][tr] = { type: 'R', color: kingColor };
+                    
                     note = castling === 'long' ? '0-0-0' : '0-0';
-                    state.kingMoved[p.color] = true;
+                    state.kingMoved[kingColor] = true;
                 } else {
-                    // Обычный ход
                     state.board[toR][toC] = p;
                     state.board[fromR][fromC] = null;
                     if (p.type === 'K') state.kingMoved[p.color] = true;
@@ -610,7 +624,6 @@
                             state.rooksMoved[p.color][idx] = true;
                         }
                     }
-                    // Превращение пешки - сразу меняем на ферзя
                     if (p.type === 'P' && (toR === 0 || toR === 7)) {
                         state.board[toR][toC] = { type: 'Q', color: p.color };
                     }
@@ -623,7 +636,6 @@
                 state.selected = null;
                 state.possibleMoves = [];
 
-                // Отправка обновления в Firebase (после всех изменений доски)
                 if (gameMode === 'network' && networkGameId && db) {
                     db.ref('games/' + networkGameId).update({
                         board: state.board,
@@ -701,8 +713,9 @@
                     if (state.phase === 'waiting_for_player' && data.status === 'ready') {
                         state.blackSetup = data.blackSetup;
                         initBoard();
+                        state.phase = 'scout';
                         renderPlayScreen();
-                        launchScoutPhaseAfterRender();
+                        startScoutTimer();
                         return;
                     }
                     if (networkPlayerRole === 'joiner' && state.phase === 'setup_black' && data.whiteSetup) {
@@ -715,6 +728,7 @@
                             state.moveLog = data.moveLog;
                             state.kingMoved = data.kingMoved;
                             state.rooksMoved = data.rooksMoved;
+                            if (data.turn) state.turn = data.turn;
                             renderPlayScreen();
                         }
                         if (data.gameOver && !state.gameOver) {
@@ -901,7 +915,9 @@
                     const cell = document.createElement('div');
                     cell.className = `setup-cell ${(i % 2 === 0) ? 'light' : 'dark'} ${invFlags[i] ? 'invalid' : ''}`;
                     if (setup[i]) {
-                        cell.innerHTML = `<span class="piece ${isWhite ? 'white' : 'black'}">${SYM[setup[i]]}</span>`;
+                        const pColor = isWhite ? 'w' : 'b';
+                        const key = pColor + setup[i];
+                        cell.innerHTML = `<div class="piece"><img src="${SYM[key]}" alt="${setup[i]}"></div>`;
                     }
                     cell.onclick = () => {
                         if (state.selectedPiece) {
@@ -921,8 +937,10 @@
                 setup.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
                 Object.keys(TOTAL_NEEDED).forEach(p => {
                     const b = document.createElement('button');
-                    b.className = `piece-btn ${isWhite ? 'white-piece' : 'black-piece'} ${state.selectedPiece === p ? 'selected' : ''}`;
-                    b.innerText = SYM[p];
+                    b.className = `piece-btn ${state.selectedPiece === p ? 'selected' : ''}`;
+                    const palColor = isWhite ? 'w' : 'b';
+                    const key = palColor + p;
+                    b.innerHTML = `<img src="${SYM[key]}" alt="${p}">`;
                     if ((counts[p] || 0) >= TOTAL_NEEDED[p]) b.disabled = true;
                     b.onclick = () => { state.selectedPiece = (state.selectedPiece === p) ? null : p; renderSetupScreen(side); };
                     sPalette.appendChild(b);
@@ -954,8 +972,9 @@
                             if (!db) { alert('Ошибка сети'); return; }
                             db.ref('games/' + networkGameId).update({ blackSetup: state.blackSetup, status: 'ready' });
                             initBoard();
+                            state.phase = 'scout';
                             renderPlayScreen();
-                            launchScoutPhaseAfterRender();
+                            startScoutTimer();
                         }
                     } else {
                         if (side === 'white') renderSetupScreen('black');
@@ -1004,17 +1023,6 @@
                 state.scoutTimer = 15;
                 initBoard();
                 renderPlayScreen();
-                if (gameMode === 'network' && db) {
-                    startNetworkGameListener(networkGameId);
-                }
-                startScoutTimer();
-            }
-
-            function launchScoutPhaseAfterRender() {
-                state.phase = 'scout';
-                const tg = window.Telegram?.WebApp;
-                updateTgBackButton(tg);
-                state.scoutTimer = 15;
                 if (gameMode === 'network' && db) {
                     startNetworkGameListener(networkGameId);
                 }
@@ -1103,7 +1111,9 @@
                         }
                         const piece = state.board[r][c];
                         if (piece) {
-                            cell.innerHTML = `<span class="piece ${piece.color}">${SYM[piece.type]}</span>`;
+                            const prefix = piece.color === 'white' ? 'w' : 'b';
+                            const key = prefix + piece.type;
+                            cell.innerHTML = `<div class="piece"><img src="${SYM[key]}" alt="${piece.type}"></div>`;
                         }
                         cell.onclick = () => {
                             if (state.phase === 'scout' || state.gameOver || state.isProcessingMove) return;
@@ -1202,7 +1212,6 @@
             }
 
             function resetEntireSystem() {
-                // Сначала удаляем комнату из Firebase, если есть
                 if (networkGameId && db) {
                     db.ref('games/' + networkGameId).remove();
                     db.ref('games/' + networkGameId).off();
@@ -1210,7 +1219,6 @@
                 }
                 clearInterval(timerInterval);
                 clearInterval(scoutInterval);
-                // Сброс всех состояний
                 state.whiteSetup.fill(null);
                 state.blackSetup.fill(null);
                 state.selectedPiece = null;
