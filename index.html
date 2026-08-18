@@ -18,25 +18,11 @@
             display: flex;
             justify-content: center;
             align-items: flex-start;
-            padding: 12px;
+            padding: 8px;
             margin: 0;
             overflow-x: hidden;
-            overflow: hidden;
-            max-height: 100vh;
-            position: relative;
-            box-sizing: border-box;
         }
-        .container {
-            max-width: 1200px;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            overflow: hidden;
-            max-height: 100vh;
-            position: relative;
-            box-sizing: border-box;
-        }
+        .container { max-width: 1200px; width: 100%; display: flex; flex-direction: column; align-items: center; }
         .btn { background: var(--tg-theme-secondary-bg-color, #1a1a1e); border: 1px solid var(--tg-theme-hint-color, #2d2d35); color: var(--tg-theme-text-color, #eee); padding: 8px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
         .btn:hover:not(:disabled) { background: var(--tg-theme-bg-color, #25252b); border-color: var(--tg-theme-button-color, #8a2be2); }
         .btn:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -91,12 +77,27 @@
         .status-bar .invalid { color: #ef4444; }
         .flex-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; }
 
-        .game-layout { display: flex; gap: 16px; justify-content: center; align-items: flex-start; flex-wrap: wrap; margin-top: 5px; width: 100%; }
+        .game-layout {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            margin-top: 5px;
+            width: 100%;
+            flex-direction: column;
+            align-items: center;
+        }
+        @media (min-width: 600px) {
+            .game-layout { flex-direction: row; align-items: flex-start; }
+        }
         .board-wrapper { display: flex; flex-direction: column; align-items: center; position: relative; width: 100%; max-width: 440px; }
         
         .board-status {
             display: flex; align-items: center; justify-content: space-between; padding: 8px 14px;
             background: var(--tg-theme-secondary-bg-color, #1a1a1e); border-radius: 8px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); width: 100%; margin-bottom: 8px;
+            flex-wrap: wrap;
+            gap: 6px;
         }
         .turn-box { display: flex; align-items: center; gap: 8px; font-size: 15px; }
         .turn-bullet { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
@@ -104,7 +105,19 @@
         .bullet-black { background: #000; border: 1px solid #fff; }
         .timer { font-size: 16px; color: #ffaa55; font-variant-numeric: tabular-nums; background: var(--tg-theme-bg-color, #121214); padding: 2px 10px; border-radius: 20px; border: 1px solid var(--tg-theme-hint-color, #2d2d35); }
 
-        .board { display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1 / 1; width: min(88vw, 78vh, 440px); background: var(--tg-theme-bg-color, #121214); border-radius: 8px; overflow: hidden; border: 2px solid var(--tg-theme-hint-color, #2d2d35); user-select: none; }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            aspect-ratio: 1 / 1;
+            width: min(92vw, 440px);
+            height: min(92vw, 440px);
+            margin: 0 auto;
+            background: var(--tg-theme-bg-color, #121214);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid var(--tg-theme-hint-color, #2d2d35);
+            user-select: none;
+        }
         .cell { display: flex; align-items: center; justify-content: center; font-size: clamp(22px, 6.5vw, 38px); aspect-ratio: 1 / 1; cursor: pointer; position: relative; }
         .cell.light { background: #e8e0d0; color: #1a1a1e; }
         .cell.dark { background: #8b7a6b; color: #fff; }
@@ -139,6 +152,7 @@
             border-radius: 8px;
             color: var(--tg-theme-text-color, #eee);
         }
+        .surrender-btn { padding: 4px 10px; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -183,7 +197,7 @@
 
             function updateTgBackButton(tg) {
                 if (!tg) return;
-                if (state.phase === 'rules' || state.phase === 'menu' || state.phase === 'join') {
+                if (state.phase === 'rules' || state.phase === 'menu' || state.phase === 'join' || state.phase === 'options') {
                     tg.BackButton.hide();
                 } else {
                     tg.BackButton.show();
@@ -572,15 +586,21 @@
                 let note = '';
 
                 if (castling) {
+                    // Chess960 castling - сохраняем объекты короля и ладьи
+                    const kingObj = p;
+                    const rookObj = state.board[toR][toC]; // ладья стоит на toR,toC (это колонка ладьи)
                     const tk = castling === 'long' ? 2 : 6;
                     const tr = castling === 'long' ? 3 : 5;
+                    // Очищаем стартовые клетки
                     state.board[fromR][fromC] = null;
                     state.board[toR][toC] = null;
-                    state.board[fromR][tk] = p;
-                    state.board[fromR][tr] = { type: 'R', color: p.color };
+                    // Ставим короля и ладью на новые места
+                    state.board[fromR][tk] = kingObj;
+                    state.board[fromR][tr] = rookObj;
                     note = castling === 'long' ? '0-0-0' : '0-0';
                     state.kingMoved[p.color] = true;
                 } else {
+                    // Обычный ход
                     state.board[toR][toC] = p;
                     state.board[fromR][fromC] = null;
                     if (p.type === 'K') state.kingMoved[p.color] = true;
@@ -590,6 +610,7 @@
                             state.rooksMoved[p.color][idx] = true;
                         }
                     }
+                    // Превращение пешки - сразу меняем на ферзя
                     if (p.type === 'P' && (toR === 0 || toR === 7)) {
                         state.board[toR][toC] = { type: 'Q', color: p.color };
                     }
@@ -602,6 +623,7 @@
                 state.selected = null;
                 state.possibleMoves = [];
 
+                // Отправка обновления в Firebase (после всех изменений доски)
                 if (gameMode === 'network' && networkGameId && db) {
                     db.ref('games/' + networkGameId).update({
                         board: state.board,
@@ -743,7 +765,7 @@
                 document.getElementById('m-pve').onclick = () => { gameMode = 'bot'; renderOptionsScreen(); };
                 document.getElementById('m-create').onclick = createNetworkRoom;
                 document.getElementById('m-join').onclick = renderJoinScreen;
-                document.getElementById('m-pvp').onclick = () => { gameMode = 'multi'; state.phase = 'setup_white'; renderSetupScreen('white'); };
+                document.getElementById('m-pvp').onclick = () => { gameMode = 'multi'; resetEntireSystem(); state.phase = 'setup_white'; renderSetupScreen('white'); };
             }
 
             function renderJoinScreen() {
@@ -790,14 +812,16 @@
                         renderSetupScreen('black');
                     });
                 };
-                document.getElementById('join-back').onclick = renderMenuScreen;
+                document.getElementById('join-back').onclick = resetEntireSystem;
             }
 
             function createNetworkRoom() {
                 if (!db) { alert('Ошибка сети'); return; }
+                resetEntireSystem();
                 networkGameId = String(Math.floor(10000 + Math.random() * 90000));
                 networkPlayerRole = 'creator';
                 playerColor = 'white';
+                gameMode = 'network';
                 db.ref('games/' + networkGameId).set({
                     status: 'waiting',
                     creatorId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'anonymous'
@@ -826,7 +850,10 @@
                             <button class="btn-opt ${playerColor==='white'?'selected':''}" data-v="white">⚪ Белые</button>
                             <button class="btn-opt ${playerColor==='black'?'selected':''}" data-v="black">⚫ Чёрные</button>
                         </div>
-                        <button class="btn-start-rules" id="opts-go" style="margin-top:20px; font-size:18px;">В кузницу сетапов</button>
+                        <div class="flex-row">
+                            <button class="btn btn-primary" id="opts-go" style="margin-top:20px; font-size:18px;">В кузницу сетапов</button>
+                            <button class="btn" id="opts-back">Назад</button>
+                        </div>
                     </div>
                 `;
                 document.querySelectorAll('#d-group .btn-opt').forEach(b => b.onclick = function() {
@@ -841,6 +868,7 @@
                     state.phase = 'setup_' + playerColor;
                     renderSetupScreen(playerColor);
                 };
+                document.getElementById('opts-back').onclick = resetEntireSystem;
             }
 
             function renderSetupScreen(side) {
@@ -1031,7 +1059,10 @@
                                     <span class="turn-bullet ${state.turn === 'white' ? 'bullet-white' : 'bullet-black'}"></span>
                                     <span>${state.gameOver ? 'Конец матча' : `Ход: ${activeColorLabel}`}</span>
                                 </div>
-                                <span class="timer" id="game-clock">00:00</span>
+                                <div style="display:flex; gap:6px; align-items:center;">
+                                    <span class="timer" id="game-clock">00:00</span>
+                                    <button class="btn btn-danger surrender-btn" id="game-surrender-btn">🏳 Сдаться</button>
+                                </div>
                             </div>
                             <div class="board" id="main-board"></div>
                         </div>
@@ -1041,6 +1072,19 @@
                         </div>
                     </div>
                 `;
+
+                document.getElementById('game-surrender-btn').onclick = function() {
+                    if (!confirm('Вы уверены, что хотите сдаться?')) return;
+                    if (gameMode === 'network' && networkGameId && db) {
+                        const winner = networkPlayerRole === 'creator' ? 'black' : 'white';
+                        db.ref('games/' + networkGameId).update({ gameOver: true, winner: winner });
+                        alert('Вы сдались. Победа соперника.');
+                        resetEntireSystem();
+                    } else {
+                        alert('Вы сдались. Игра окончена.');
+                        resetEntireSystem();
+                    }
+                };
 
                 const mBoard = document.getElementById('main-board');
                 const invert = (gameMode === 'bot' && playerColor === 'black') || (gameMode === 'network' && networkPlayerRole === 'joiner');
@@ -1158,12 +1202,15 @@
             }
 
             function resetEntireSystem() {
-                clearInterval(timerInterval);
-                clearInterval(scoutInterval);
+                // Сначала удаляем комнату из Firebase, если есть
                 if (networkGameId && db) {
+                    db.ref('games/' + networkGameId).remove();
                     db.ref('games/' + networkGameId).off();
                     networkListenerRef = null;
                 }
+                clearInterval(timerInterval);
+                clearInterval(scoutInterval);
+                // Сброс всех состояний
                 state.whiteSetup.fill(null);
                 state.blackSetup.fill(null);
                 state.selectedPiece = null;
@@ -1171,8 +1218,13 @@
                 state.possibleMoves = [];
                 state.gameOver = false;
                 state.isProcessingMove = false;
+                state.moveLog = [];
+                state.phase = 'menu';
+                gameMode = 'bot';
                 networkGameId = null;
                 networkPlayerRole = null;
+                playerColor = 'white';
+                difficulty = 'intermediate';
                 renderMenuScreen();
             }
 
