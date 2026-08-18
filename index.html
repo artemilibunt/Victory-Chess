@@ -194,7 +194,8 @@
             function handleBackAction() {
                 if (networkGameId && db) {
                     db.ref('games/' + networkGameId).remove();
-                    if (networkListenerRef) networkListenerRef();
+                    db.ref('games/' + networkGameId).off();
+                    networkListenerRef = null;
                 }
                 resetEntireSystem();
             }
@@ -278,7 +279,7 @@
                             addMove(row + dir, col);
                             if (row === start && !boardState[row + 2 * dir][col]) addMove(row + 2 * dir, col);
                         }
-                        [-1, 1].forEach(side => {
+                        ;[-1, 1].forEach(side => {
                             const nc = col + side;
                             if (nc >= 0 && nc <= 7 && boardState[row + dir]?.[nc]?.color === enemy) {
                                 addMove(row + dir, nc, { isCapture: true });
@@ -661,7 +662,10 @@
 
             function startNetworkGameListener(gameCode) {
                 if (!db) return;
-                if (networkListenerRef) networkListenerRef();
+                if (networkListenerRef) {
+                    db.ref('games/' + networkGameId).off();
+                    networkListenerRef = null;
+                }
                 const ref = db.ref('games/' + gameCode);
                 networkListenerRef = ref.on('value', (snapshot) => {
                     const data = snapshot.val();
@@ -799,8 +803,8 @@
                     creatorId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'anonymous'
                 });
                 startNetworkGameListener(networkGameId);
-                state.phase = 'waiting_for_player';
-                renderWaitingScreen();
+                state.phase = 'setup_white';
+                renderSetupScreen('white');
             }
 
             function renderOptionsScreen() {
@@ -958,7 +962,7 @@
                 document.getElementById('waiting-cancel').onclick = function() {
                     if (db && networkGameId) {
                         db.ref('games/' + networkGameId).remove();
-                        if (networkListenerRef) networkListenerRef();
+                        db.ref('games/' + networkGameId).off();
                         networkListenerRef = null;
                     }
                     resetEntireSystem();
@@ -1156,8 +1160,8 @@
             function resetEntireSystem() {
                 clearInterval(timerInterval);
                 clearInterval(scoutInterval);
-                if (networkListenerRef) {
-                    networkListenerRef();
+                if (networkGameId && db) {
+                    db.ref('games/' + networkGameId).off();
                     networkListenerRef = null;
                 }
                 state.whiteSetup.fill(null);
