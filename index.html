@@ -63,7 +63,7 @@
         .setup-cell.dark { background: #8b7a6b; }
         .setup-cell.selected { box-shadow: inset 0 0 0 4px var(--tg-theme-button-color, #8a2be2); }
         .setup-cell.invalid { box-shadow: inset 0 0 0 4px #ef4444 !important; }
-        .setup-cell .piece img { width: 90%; height: 90%; object-fit: contain; display: block; }
+        .setup-cell .piece img { width: 100%; height: 100%; object-fit: contain; display: block; }
         
         .piece-palette { display: flex; gap: 8px; justify-content: center; padding: 12px; width: 100%; flex-wrap: wrap; }
         .piece-btn { font-size: 28px; width: 52px; height: 52px; background: var(--tg-theme-bg-color, #25252b); border: 1px solid var(--tg-theme-hint-color, #3f3f46); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.15s; }
@@ -124,7 +124,7 @@
         .cell.selected { background: #b91c1c !important; }
         .cell.highlight::after { content: ''; width: 12px; height: 12px; background: rgba(138, 43, 226, 0.7); border-radius: 50%; position: absolute; }
         .cell.highlight-capture { box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.8) !important; }
-        .piece img { width: 90%; height: 90%; object-fit: contain; display: block; }
+        .piece img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
         .vic-scan-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -204,6 +204,7 @@
             let timerInterval = null;
             let scoutInterval = null;
             let networkListenerRef = null;
+            let statusListenerRef = null;
             let db = null;
 
             const app = document.getElementById('app');
@@ -222,7 +223,9 @@
                 if (networkGameId && db) {
                     db.ref('games/' + networkGameId).remove();
                     db.ref('games/' + networkGameId).off();
+                    if (statusListenerRef) statusListenerRef();
                     networkListenerRef = null;
+                    statusListenerRef = null;
                 }
                 resetEntireSystem();
             }
@@ -369,15 +372,18 @@
                                 addMove(r2, c2, { isCapture: !!boardState[r2]?.[c2] });
                             }
                         }
-                        if (!state.kingMoved[color]) {
-                            const rRow = color === 'white' ? 0 : 7;
-                            const rooks = state.initialRookCols[color];
-                            if (rooks && rooks.length === 2) {
-                                if (!state.rooksMoved[color][0] && isCastlingPathClear(boardState, rRow, col, rooks[0], 2, 3)) {
-                                    moves.push({ row: rRow, col: rooks[0], castling: 'long' });
-                                }
-                                if (!state.rooksMoved[color][1] && isCastlingPathClear(boardState, rRow, col, rooks[1], 6, 5)) {
-                                    moves.push({ row: rRow, col: rooks[1], castling: 'short' });
+                        // Рокировка выполняется ТОЛЬКО на реальной доске, не в виртуальных симуляциях ИИ
+                        if (boardState === state.board) {
+                            if (!state.kingMoved[color] && state.initialRookCols[color]) {
+                                const rRow = color === 'white' ? 0 : 7;
+                                const rooks = state.initialRookCols[color];
+                                if (rooks && rooks.length === 2) {
+                                    if (!state.rooksMoved[color][0] && isCastlingPathClear(boardState, rRow, col, rooks[0], 2, 3)) {
+                                        moves.push({ row: rRow, col: rooks[0], castling: 'long' });
+                                    }
+                                    if (!state.rooksMoved[color][1] && isCastlingPathClear(boardState, rRow, col, rooks[1], 6, 5)) {
+                                        moves.push({ row: rRow, col: rooks[1], castling: 'short' });
+                                    }
                                 }
                             }
                         }
@@ -604,19 +610,22 @@
                     const tk = castling === 'long' ? 2 : 6;
                     const tr = castling === 'long' ? 3 : 5;
                     
-                    // Полностью очищаем стартовые ячейки
-                    state.board[fromR][fromC] = null;
-                    state.board[fromR][toC] = null;
+                    for (let col = 0; col < 8; col++) {
+                        state.board[fromR][col] = null;
+                    }
                     
-                    // Записываем фигуры в виде чистых плоских структур для Firebase
                     state.board[fromR][tk] = { type: 'K', color: kingColor };
                     state.board[fromR][tr] = { type: 'R', color: kingColor };
+                    
+                    state.rooksMoved[kingColor][0] = true;
+                    state.rooksMoved[kingColor][1] = true;
                     
                     note = castling === 'long' ? '0-0-0' : '0-0';
                     state.kingMoved[kingColor] = true;
                 } else {
                     state.board[toR][toC] = p;
                     state.board[fromR][fromC] = null;
+                    
                     if (p.type === 'K') state.kingMoved[p.color] = true;
                     if (p.type === 'R') {
                         const idx = state.initialRookCols[p.color].indexOf(fromC);
@@ -624,12 +633,19 @@
                             state.rooksMoved[p.color][idx] = true;
                         }
                     }
+                    
+                    let promoted = false;
                     if (p.type === 'P' && (toR === 0 || toR === 7)) {
                         state.board[toR][toC] = { type: 'Q', color: p.color };
+                        promoted = true;
                     }
+                    
+                    const finalPiece = state.board[toR][toC];
                     const fromNotation = String.fromCharCode(97 + fromC) + (8 - fromR);
                     const toNotation = String.fromCharCode(97 + toC) + (8 - toR);
-                    note = `${p.type === 'P' ? '' : p.type}${fromNotation}${target ? 'x' : '-'}${toNotation}`;
+                    const pieceSymbol = (finalPiece.type === 'P' || promoted) ? '' : finalPiece.type;
+                    note = `${pieceSymbol}${fromNotation}${target ? 'x' : '-'}${toNotation}`;
+                    if (promoted) note += 'Q';
                 }
 
                 state.moveLog.push({ color: p.color, text: note });
@@ -700,6 +716,22 @@
                     db.ref('games/' + networkGameId).off();
                     networkListenerRef = null;
                 }
+                if (statusListenerRef) {
+                    db.ref('games/' + networkGameId + '/blackSetup').off();
+                    statusListenerRef = null;
+                }
+
+                statusListenerRef = db.ref('games/' + gameCode + '/blackSetup').on('value', (snapshot) => {
+                    const blackSetupData = snapshot.val();
+                    if (state.phase === 'waiting_for_player' && blackSetupData && blackSetupData.every(p => p !== null)) {
+                        state.blackSetup = blackSetupData.slice();
+                        initBoard();
+                        state.phase = 'scout';
+                        renderPlayScreen();
+                        startScoutTimer();
+                    }
+                });
+
                 const ref = db.ref('games/' + gameCode);
                 networkListenerRef = ref.on('value', (snapshot) => {
                     const data = snapshot.val();
@@ -710,25 +742,28 @@
                         }
                         return;
                     }
-                    if (state.phase === 'waiting_for_player' && data.status === 'ready') {
-                        state.blackSetup = data.blackSetup;
-                        initBoard();
-                        state.phase = 'scout';
-                        renderPlayScreen();
-                        startScoutTimer();
-                        return;
-                    }
                     if (networkPlayerRole === 'joiner' && state.phase === 'setup_black' && data.whiteSetup) {
                         state.whiteSetup = data.whiteSetup;
                     }
                     if (state.phase === 'play' || state.phase === 'scout') {
                         if (data.moveLog && data.moveLog.length > state.moveLog.length) {
-                            state.board = data.board;
-                            state.turn = data.turn;
+                            // Безопасное копирование доски без JSON.parse/stringify
+                            if (data.board) {
+                                state.board = data.board.map(row => row ? row.map(cell => cell ? { ...cell } : null) : Array(8).fill(null));
+                            }
                             state.moveLog = data.moveLog;
-                            state.kingMoved = data.kingMoved;
-                            state.rooksMoved = data.rooksMoved;
-                            if (data.turn) state.turn = data.turn;
+                            if (data.kingMoved) {
+                                state.kingMoved = { ...data.kingMoved };
+                            }
+                            if (data.rooksMoved) {
+                                state.rooksMoved = {
+                                    white: [...data.rooksMoved.white],
+                                    black: [...data.rooksMoved.black]
+                                };
+                            }
+                            if (state.phase === 'play') {
+                                state.turn = data.turn;
+                            }
                             renderPlayScreen();
                         }
                         if (data.gameOver && !state.gameOver) {
@@ -1010,6 +1045,10 @@
                     if (db && networkGameId) {
                         db.ref('games/' + networkGameId).remove();
                         db.ref('games/' + networkGameId).off();
+                        if (statusListenerRef) {
+                            db.ref('games/' + networkGameId + '/blackSetup').off();
+                            statusListenerRef = null;
+                        }
                         networkListenerRef = null;
                     }
                     resetEntireSystem();
@@ -1096,44 +1135,50 @@
 
                 const mBoard = document.getElementById('main-board');
                 const invert = (gameMode === 'bot' && playerColor === 'black') || (gameMode === 'network' && networkPlayerRole === 'joiner');
+                
                 for (let rIndex = 0; rIndex < 8; rIndex++) {
                     for (let cIndex = 0; cIndex < 8; cIndex++) {
-                        const r = invert ? rIndex : 7 - rIndex;
-                        const c = invert ? 7 - cIndex : cIndex;
+                        const physR = invert ? 7 - rIndex : rIndex;
+                        const physC = invert ? 7 - cIndex : cIndex;
+                        
                         const cell = document.createElement('div');
-                        cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
-                        if (state.selected && state.selected.row === r && state.selected.col === c) {
+                        cell.className = `cell ${(physR + physC) % 2 === 0 ? 'light' : 'dark'}`;
+                        
+                        if (state.selected && state.selected.row === physR && state.selected.col === physC) {
                             cell.classList.add('selected');
                         }
-                        const possible = state.possibleMoves.find(m => m.row === r && m.col === c);
+                        const possible = state.possibleMoves.find(m => m.row === physR && m.col === physC);
                         if (possible) {
                             cell.classList.add(possible.isCapture || possible.castling ? 'highlight-capture' : 'highlight');
                         }
-                        const piece = state.board[r][c];
+                        const piece = state.board[physR][physC];
                         if (piece) {
                             const prefix = piece.color === 'white' ? 'w' : 'b';
-                            const key = prefix + piece.type;
+                            const key = prefix + piece.type.toUpperCase();
                             cell.innerHTML = `<div class="piece"><img src="${SYM[key]}" alt="${piece.type}"></div>`;
                         }
-                        cell.onclick = () => {
-                            if (state.phase === 'scout' || state.gameOver || state.isProcessingMove) return;
-                            if (gameMode === 'network') {
-                                if (networkPlayerRole === 'creator' && state.turn !== 'white') return;
-                                if (networkPlayerRole === 'joiner' && state.turn !== 'black') return;
-                            }
-                            if (gameMode === 'bot' && state.turn !== playerColor) return;
-                            if (possible && state.selected) {
-                                commitMove(state.selected.row, state.selected.col, r, c, possible.castling);
-                            } else if (piece && piece.color === state.turn) {
-                                state.selected = { row: r, col: c };
-                                state.possibleMoves = getLegalMoves(state.board, r, c);
-                                renderPlayScreen();
-                            } else {
-                                state.selected = null;
-                                state.possibleMoves = [];
-                                renderPlayScreen();
-                            }
-                        };
+                        cell.onclick = (function(pr, pc) {
+                            return function() {
+                                if (state.phase === 'scout' || state.gameOver || state.isProcessingMove) return;
+                                if (gameMode === 'network') {
+                                    if (networkPlayerRole === 'creator' && state.turn !== 'white') return;
+                                    if (networkPlayerRole === 'joiner' && state.turn !== 'black') return;
+                                }
+                                if (gameMode === 'bot' && state.turn !== playerColor) return;
+                                if (possible && state.selected) {
+                                    commitMove(state.selected.row, state.selected.col, pr, pc, possible.castling);
+                                } else if (piece && piece.color === state.turn) {
+                                    state.selected = { row: pr, col: pc };
+                                    state.possibleMoves = getLegalMoves(state.board, pr, pc);
+                                    renderPlayScreen();
+                                } else {
+                                    state.selected = null;
+                                    state.possibleMoves = [];
+                                    renderPlayScreen();
+                                }
+                            };
+                        })(physR, physC);
+                        
                         mBoard.appendChild(cell);
                     }
                 }
@@ -1215,6 +1260,10 @@
                 if (networkGameId && db) {
                     db.ref('games/' + networkGameId).remove();
                     db.ref('games/' + networkGameId).off();
+                    if (statusListenerRef) {
+                        db.ref('games/' + networkGameId + '/blackSetup').off();
+                        statusListenerRef = null;
+                    }
                     networkListenerRef = null;
                 }
                 clearInterval(timerInterval);
